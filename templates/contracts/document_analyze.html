@@ -32,14 +32,15 @@
 
   <!-- Right: AI Review Panel -->
   <div class="review-panel">
-    <div class="review-panel-header">
-      <div class="review-actions">
-        <div id="reviewCountBadge" style="display:none">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><text x="12" y="17" text-anchor="middle" font-size="9" font-weight="bold" stroke="none" fill="currentColor">!</text></svg>
+    <div class="review-panel-header" style="padding:12px 20px; display:flex; align-items:center; min-height:56px; border-bottom:1px solid #f0f0f0;">
+      <div class="review-actions" style="display:flex; align-items:center; gap:8px; width:100%;">
+        <div id="reviewCountBadge" style="display:none; align-items:center; gap:6px; background:#fffbeb; border:1.5px solid #d97706; color:#d97706; border-radius:8px; padding:0 14px; height:36px; font-size:13px; font-weight:600; white-space:nowrap; flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
           <span id="reviewCountText">확인 0 건</span>
         </div>
-        <button class="btn btn-primary btn-sm" id="btnCompleteReview" onclick="completeReview()" style="display:none">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg>
+        <button class="btn btn-primary btn-sm" id="btnCompleteReview" onclick="completeReview()"
+          style="display:none; height:36px; align-items:center; gap:6px; white-space:nowrap; flex-shrink:0; font-size:13px; font-weight:600; padding:0 14px; border-radius:8px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="9 18 15 12 9 6"/></svg>
           검토완료 · 이행관리 이관
         </button>
       </div>
@@ -65,15 +66,16 @@
       {% endif %}
     </div>
 
-    <div class="review-panel-footer">
-      <!-- <button class="btn btn-ghost btn-sm" id="btnDownloadReport" style="display:none">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        검토 결과 보고서 내려받기
-      </button> -->
-      <button class="btn btn-ghost btn-sm" id="btnDownloadReport" style="display:none"
+    <div class="review-panel-footer" style="padding:0; min-height:0; border-top:none;">
+      <button id="btnDownloadReport"
+        style="display:none; width:100%; align-items:center; justify-content:center; gap:8px; height:48px; border:none; border-top:1.5px solid #e0e0f0; background:#fff; color:#4f46e5; font-size:13px; font-weight:600; cursor:pointer; border-radius:0 0 12px 12px;"
         onclick="window.location.href='/contracts/document/{{ doc.id }}/export-pdf/'">
-        <svg ...></svg>
-        검토 결과 보고서 내려받기
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        검토 결과 보고서 내려받기 (PDF)
       </button>
     </div>
   </div>
@@ -160,7 +162,7 @@ function renderResults(blanks, typos, legal) {
 
   if (blanks.length > 0) {
     blanks.forEach(b => {
-      html += `<div class="review-card review-card--blank">
+      html += `<div class="review-card review-card--blank" style="margin-bottom:10px;">
         <div class="review-card-header">
           <span class="review-tag tag--blank">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -176,7 +178,7 @@ function renderResults(blanks, typos, legal) {
 
   if (typos.length > 0) {
     typos.forEach(t => {
-      html += `<div class="review-card review-card--typo">
+      html += `<div class="review-card review-card--typo" style="margin-bottom:10px;">
         <div class="review-card-header">
           <span class="review-tag tag--typo">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
@@ -192,7 +194,7 @@ function renderResults(blanks, typos, legal) {
 
   if (legal.length > 0) {
     legal.forEach(l => {
-      html += `<div class="review-card review-card--legal">
+      html += `<div class="review-card review-card--legal" style="margin-bottom:10px;">
         <div class="review-card-header">
           <span class="review-tag tag--legal">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"/></svg>

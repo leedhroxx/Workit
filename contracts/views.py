@@ -368,7 +368,9 @@ def document_export_pdf(request, doc_id):
 
     # 스타일 
     def style(name, **kwargs):
-        return ParagraphStyle(name, fontName=FONT, **kwargs)
+        if 'fontName' not in kwargs:
+            kwargs['fontName'] = FONT
+        return ParagraphStyle(name, **kwargs)
 
     S = {
         "title": style("title", fontName=FONT_BOLD, fontSize=18, leading=26, spaceAfter=4),

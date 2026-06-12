@@ -260,6 +260,9 @@ input, textarea { font-family: inherit; font-size: inherit; }
 .ai-intro-icon { width: 64px; height: 64px; background: var(--primary-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--primary); }
 .ai-intro h3 { font-size: 16px; font-weight: 700; color: var(--text-primary); }
 .ai-intro p { font-size: 13px; line-height: 1.6; }
+.review-panel-footer:empty,
+.review-panel-footer button[style*="display:none"] { display: none !important;}
+.review-panel-footer { min-height: 0; padding: 0; }
 
 /* Review Cards */
 .review-card { border-radius: var(--radius-sm); padding: 14px; border: 1px solid; }
