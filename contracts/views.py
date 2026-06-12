@@ -318,3 +318,190 @@ def document_page_count(request, doc_id):
     
     except Exception as e:
         return JsonResponse({'pages': 1})
+    
+@login_required
+def document_export_pdf(request, doc_id):
+    """AI 분석 결과를 PDF로 다운로드"""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    import io
+    from datetime import datetime, timezone
+
+    doc = get_object_or_404(ContractDocument, pk=doc_id, contract__created_by=request.user)
+
+    try:
+        result = doc.review_result
+    except AIReviewResult.DoesNotExist:
+        return HttpResponse("분석 결과가 없습니다. AI 분석을 먼저 실행해주세요.", status=404)
+
+    # 한국어 폰트 등록 
+    # Windows로 변경
+    FONT_PATH = r"C:\Windows\Fonts\malgun.ttf"        # 맑은 고딕
+    FONT_BOLD_PATH = r"C:\Windows\Fonts\malgunbd.ttf" # 맑은 고딕 Bold
+
+    try:
+        if "MalgunGothic" not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont("MalgunGothic", FONT_PATH))
+            pdfmetrics.registerFont(TTFont("MalgunGothicBold", FONT_BOLD_PATH))
+        FONT = "MalgunGothic"
+        FONT_BOLD = "MalgunGothicBold"
+    except Exception:
+        FONT = "Helvetica"
+        FONT_BOLD = "Helvetica-Bold"
+    # FONT_PATH = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+    # FONT_BOLD_PATH = "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"
+    # try:
+    #     if "NanumGothic" not in pdfmetrics.getRegisteredFontNames():
+    #         pdfmetrics.registerFont(TTFont("NanumGothic", FONT_PATH))
+    #         pdfmetrics.registerFont(TTFont("NanumGothicBold", FONT_BOLD_PATH))
+    #     FONT = "NanumGothic"
+    #     FONT_BOLD = "NanumGothicBold"
+    # except Exception:
+    #     # 폰트 없으면 기본 폰트 사용 (한글 깨질 수 있음)
+    #     FONT = "Helvetica"
+    #     FONT_BOLD = "Helvetica-Bold"
+
+    # 스타일 
+    def style(name, **kwargs):
+        return ParagraphStyle(name, fontName=FONT, **kwargs)
+
+    S = {
+        "title": style("title", fontName=FONT_BOLD, fontSize=18, leading=26, spaceAfter=4),
+        "subtitle": style("subtitle", fontSize=10, textColor=colors.HexColor("#666666"), spaceAfter=4),
+        "section": style("section", fontName=FONT_BOLD, fontSize=12, leading=18, spaceBefore=12, spaceAfter=6),
+        "body": style("body", fontSize=10, leading=15, spaceAfter=3),
+        "quote": style("quote", fontSize=9,  leading=14, leftIndent=12,
+                          textColor=colors.HexColor("#555555"), spaceAfter=3),
+        "ref": style("ref", fontSize=8,  leading=12,
+                          textColor=colors.HexColor("#888888"), spaceAfter=6),
+        "footer": style("footer", fontSize=8, textColor=colors.HexColor("#aaaaaa")),
+    }
+
+    TAG_COLOR = {
+        "blank": colors.HexColor("#4f46e5"),
+        "typo": colors.HexColor("#d97706"),
+        "legal": colors.HexColor("#dc2626"),
+    }
+    TAG_BG = {
+        "blank": colors.HexColor("#eef2ff"),
+        "typo": colors.HexColor("#fffbeb"),
+        "legal": colors.HexColor("#fef2f2"),
+    }
+    TAG_LABEL = {"blank": "빈칸", "typo": "오탈자", "legal": "법률 검토"}
+
+    # PDF 생성 
+    buffer = io.BytesIO()
+    W = A4[0] - 40 * mm
+
+    pdf = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=20*mm, rightMargin=20*mm,
+        topMargin=20*mm, bottomMargin=20*mm,
+    )
+
+    story = []
+    today = datetime.now(timezone.utc).strftime("%Y년 %m월 %d일")
+    contract = doc.contract
+
+    blanks = result.blanks or []
+    typos = result.typos or []
+    legal = result.legal_issues or []
+    total = len(blanks) + len(typos) + len(legal)
+
+    # 헤더
+    story.append(Paragraph("AI 계약서 검토 결과보고서", S["title"]))
+    story.append(Paragraph("Workit — 정보화사업 계약서 AI 검토 플랫폼", S["subtitle"]))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#4f46e5")))
+    story.append(Spacer(1, 6))
+
+    # 기본 정보 테이블
+    info = [
+        ["검토 파일", doc.filename()],
+        ["프로젝트명", contract.project_name],
+        ["수행 업체", contract.company_name],
+        ["검토 일자", today],
+        ["확인 항목", f"총 {total}건 (빈칸 {len(blanks)}건 · 오탈자 {len(typos)}건 · 법률 {len(legal)}건)"],
+    ]
+    t = Table(info, colWidths=[32*mm, W - 32*mm])
+    t.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), FONT),
+        ("FONTNAME", (0,0), (0,-1), FONT_BOLD),
+        ("FONTSIZE", (0,0), (-1,-1), 10),
+        ("TEXTCOLOR", (0,0), (0,-1), colors.HexColor("#4f46e5")),
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#f5f3ff")),
+        ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#e0e0e0")),
+        ("TOPPADDING", (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ("LEFTPADDING", (0,0), (-1,-1), 8),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(
+        "※ 본 보고서는 sLLM이 자동 생성한 검토 의견입니다. 확인이 필요한 항목만 표시하며 수정안은 제공하지 않습니다.",
+        S["footer"]
+    ))
+    story.append(Spacer(1, 8))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#dddddd")))
+
+    # 항목별 카드 출력 함수
+    def add_cards(items, tag):
+        if not items:
+            return
+        story.append(Paragraph(
+            f"{TAG_LABEL[tag]} ({len(items)}건)", S["section"]
+        ))
+        for item in items:
+            location = item.get("location", "")
+            desc = item.get("description") or item.get("issue", "")
+            text = item.get("text", "")
+            ref = item.get("legal_ref", "")
+
+            # 태그 + 위치 행
+            badge = Table(
+                [[Paragraph(TAG_LABEL[tag], ParagraphStyle(
+                    "badge", fontName=FONT_BOLD, fontSize=9,
+                    textColor=TAG_COLOR[tag], alignment=1
+                  )),
+                  Paragraph(location, S["footer"])]],
+                colWidths=[18*mm, W - 18*mm]
+            )
+            badge.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (0,0),   TAG_BG[tag]),
+                ("BACKGROUND", (1,0), (1,0),   colors.HexColor("#fafafa")),
+                ("BOX", (0,0), (-1,-1), 0.5, TAG_COLOR[tag]),
+                ("TOPPADDING", (0,0), (-1,-1), 4),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+                ("LEFTPADDING", (0,0), (-1,-1), 8),
+                ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ]))
+            story.append(badge)
+            if desc:
+                story.append(Paragraph(desc, S["body"]))
+            if text:
+                story.append(Paragraph(f'"{text}"', S["quote"]))
+            if ref:
+                story.append(Paragraph(f"근거: {ref}", S["ref"]))
+            story.append(Spacer(1, 4))
+
+    add_cards(blanks, "blank")
+    add_cards(typos, "typo")
+    add_cards(legal, "legal")
+
+    # 푸터
+    story.append(Spacer(1, 12))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#dddddd")))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(f"본 보고서는 Workit이 {today}에 자동 생성했습니다.", S["footer"]))
+
+    pdf.build(story)
+
+    # 응답 
+    filename = f"{doc.filename().rsplit('.', 1)[0]}_AI검토결과.pdf"
+    response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
