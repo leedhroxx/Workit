@@ -13,4 +13,5 @@ urlpatterns = [
     path('document/<int:doc_id>/pages/', views.document_page_count, name='document_page_count'),
     path('document/<int:doc_id>/ai-analyze/', views.document_ai_analyze, name='document_ai_analyze'),
     path('task/<str:task_id>/status/', views.document_ai_status, name='document_ai_status'),
+    path('document/<int:doc_id>/export-pdf/', views.document_export_pdf, name='document_export_pdf'),
 ]

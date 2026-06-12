@@ -26,7 +26,7 @@ from sentence_transformers import SentenceTransformer
 # ──────────────────────────────────────────
 # 0. 설정
 # ──────────────────────────────────────────
-QDRANT_PATH = "./qdrant_storage"
+QDRANT_PATH = "./vectorstore/qdrant_storage"
 COLLECTION = "law_kb"
 EMBED_MODEL = "BAAI/bge-m3"
 
