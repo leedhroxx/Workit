@@ -122,11 +122,19 @@ ADAPTER_PATH = os.path.join(BASE_DIR, 'data', 'jihye_sft', 'model_output')
 SYSTEM_PROMPT = "당신은 공공 SW 계약서의 위험 조항을 탐지하는 전문가입니다. 주어진 계약 조항과 참고 기준을 바탕으로 위험 여부를 판단하고 근거를 제시하십시오."
 
 
+# transformers==4.49.0(requirements.txt)는 RopeParameters를 모르므로,
+# 그 심볼이 추가되기 전(Transformers v5 대응 커밋 이전)의 모델 코드로 고정한다.
+BASE_MODEL_REVISION = "8e6fc27d1910b526b5d48a2aa129b08a0293df5e"
+
+
 def load_model():
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        BASE_MODEL_ID, revision=BASE_MODEL_REVISION, trust_remote_code=True
+    )
     base_model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL_ID,
-        dtype=torch.float16,
+        revision=BASE_MODEL_REVISION,
+        torch_dtype=torch.float16,
         device_map="cpu",
         trust_remote_code=True,
     )
