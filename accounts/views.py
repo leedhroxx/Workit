@@ -1,16 +1,19 @@
+from functools import wraps
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.sessions.models import Session
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from contracts.models import Contract
 from performance.models import Performance
 
-from .forms import WorkitPasswordChangeForm
-from .models import User
+from .forms import AdminUserCreationForm, OrganizationCreateForm, WorkitPasswordChangeForm
+from .models import Organization, User
 
 from django.views.decorators.http import require_POST
 
@@ -21,13 +24,18 @@ def _delete_session(session_key):
 
 
 def _check_single_session_conflict(request, user):
-    """동일 계정이 다른(살아있는) 세션에서 로그인 중인지 확인."""
     existing_session_key = user.current_session_key
     if not existing_session_key or existing_session_key == request.session.session_key:
         return False
 
-    if not Session.objects.filter(session_key=existing_session_key).exists():
-        # 이미 끊긴 세션이면 정리하고 충돌 아님으로 처리
+    # 기존: .exists() → 만료된 세션도 True 반환해서 오판
+    # 수정: expire_date__gt=now → 실제로 살아있는 세션만 True
+    session_alive = Session.objects.filter(
+        session_key=existing_session_key,
+        expire_date__gt=timezone.now()
+    ).exists()
+
+    if not session_alive:
         user.current_session_key = None
         user.save(update_fields=["current_session_key"])
         return False
@@ -207,7 +215,6 @@ def mypage_update(request):
             'phone': '전화번호',
             'department': '부서',
             'position': '직급',
-            'organization': '소속기관',
         }
         missing = [label for field, label in required_fields.items() if not (request.POST.get(field) or '').strip()]
         if missing:
@@ -220,15 +227,16 @@ def mypage_update(request):
         user.phone = request.POST.get('phone').strip()
         user.department = request.POST.get('department').strip()
         user.position = request.POST.get('position').strip()
-        user.organization = request.POST.get('organization').strip()
-        user.save(update_fields=['first_name', 'last_name', 'email', 'phone', 'department', 'position', 'organization'])
+        user.save(update_fields=['first_name', 'last_name', 'email', 'phone', 'department', 'position'])
         return JsonResponse({'status': 'ok', 'message': '정보가 수정되었습니다.'})
 
     return JsonResponse({'status': 'error', 'message': '잘못된 요청입니다.'}, status=400)
 
+
 @login_required
 def help_page(request):
     return render(request, 'help/help.html')
+
 
 @login_required
 @require_POST
@@ -239,4 +247,82 @@ def toggle_notification(request):
     return JsonResponse({
         'status': 'ok',
         'notification_enabled': user.notification_enabled,
+    })
+
+
+# ──────────────────────────────────────────────
+# 관리자(is_superuser) 전용 계정/부서 관리
+# ──────────────────────────────────────────────
+
+def system_admin_required(view_func):
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated or not request.user.is_system_admin:
+            messages.error(request, '접근 권한이 없습니다.')
+            return redirect('home')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+@system_admin_required
+def account_list_view(request):
+    accounts = (
+        User.objects.select_related('organization')
+        .exclude(is_superuser=True)
+        .order_by('organization__name', 'username')
+    )
+    return render(request, 'accounts/account_list.html', {'accounts': accounts})
+
+
+@system_admin_required
+def account_create_view(request):
+    if request.method == 'POST':
+        form = AdminUserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            messages.success(
+                request,
+                f'{user.korean_name()}님의 계정이 생성되었습니다. 초기 비밀번호로 로그인 후 변경이 필요합니다.',
+            )
+            return redirect('account_list')
+        messages.error(request, '입력 내용을 확인하세요.')
+    else:
+        form = AdminUserCreationForm()
+
+    return render(request, 'accounts/account_create.html', {'form': form})
+
+
+@system_admin_required
+@require_POST
+def account_lock_toggle_view(request, user_id):
+    target = get_object_or_404(User, pk=user_id)
+    if target.is_system_admin:
+        messages.error(request, '관리자 계정은 잠금 처리할 수 없습니다.')
+        return redirect('account_list')
+
+    if target.is_locked:
+        target.unlock()
+        messages.success(request, f'{target.korean_name()}님의 계정 잠금이 해제되었습니다.')
+    else:
+        target.lock(User.LOCK_REASON_ADMIN)
+        messages.success(request, f'{target.korean_name()}님의 계정을 잠금 처리했습니다.')
+    return redirect('account_list')
+
+
+@system_admin_required
+def organization_list_view(request):
+    if request.method == 'POST':
+        form = OrganizationCreateForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, '부서가 추가되었습니다.')
+            return redirect('organization_list')
+        messages.error(request, '입력 내용을 확인하세요.')
+    else:
+        form = OrganizationCreateForm()
+
+    organizations = Organization.objects.all()
+    return render(request, 'accounts/organization_list.html', {
+        'organizations': organizations,
+        'form': form,
     })

@@ -6,14 +6,38 @@ from django.db import models
 from django.utils import timezone
 
 
+class Organization(models.Model):
+    """부서/조직 단위.
+
+    사용자(User)와 문서(계약/이행)의 접근 범위를 이 단위로 격리한다.
+    서로 다른 부서에 속한 사용자는 서로의 문서를 볼 수 없다.
+    """
+
+    name = models.CharField("부서명", max_length=100, unique=True)
+    code = models.CharField("부서코드", max_length=20, unique=True)
+    is_active = models.BooleanField("사용 여부", default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "부서"
+        verbose_name_plural = "부서 목록"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class User(AbstractUser):
     """Workit 사용자 계정.
 
     운영 정책:
-    - 관리자가 초기 비밀번호로 계정을 생성한다.
+    - 관리자(is_superuser)가 초기 비밀번호로 계정을 생성한다.
     - 최초 로그인 또는 관리자 잠금해제/초기화 후 비밀번호 변경을 강제한다.
     - 5회 연속 로그인 실패 또는 90일 비밀번호 만료 시 계정을 잠근다.
     - 동일 계정 동시접속 제어를 위해 현재 세션키를 저장한다.
+    - 사용자는 자신이 속한 부서(Organization)의 문서만 조회할 수 있다.
+    - "관리자" 권한은 별도 role 필드 없이 Django 기본 is_superuser를 그대로 사용한다.
+      (is_staff/groups는 Django 자체 admin 사이트 권한 체계이며, 이 서비스에서는 사용하지 않는다.)
     """
 
     LOCK_REASON_FAILED_LOGIN = "FAILED_LOGIN"
@@ -34,7 +58,18 @@ class User(AbstractUser):
     department = models.CharField("부서", max_length=100)
     position = models.CharField("직급", max_length=50)
     phone = models.CharField("전화번호", max_length=20)
-    organization = models.CharField("소속기관", max_length=100)
+
+    # 기존: organization = models.CharField("소속기관", max_length=100)
+    # 변경: 부서 단위 데이터 격리를 위해 Organization을 FK로 연결한다.
+    # 관리자(is_superuser) 계정은 특정 부서에 속하지 않아도 되므로 null 허용.
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.PROTECT,
+        related_name="users",
+        verbose_name="소속부서",
+        null=True,
+        blank=True,
+    )
 
     force_password_change = models.BooleanField("다음 로그인 시 비밀번호 변경", default=True)
     password_changed_at = models.DateTimeField("비밀번호 변경 일시", null=True, blank=True)
@@ -51,7 +86,8 @@ class User(AbstractUser):
         "phone",
         "department",
         "position",
-        "organization",
+        # "organization"은 관리자(is_superuser) 계정이 부서 미배정일 수 있어
+        # createsuperuser 필수 입력에서 제외한다.
     ]
 
     class Meta:
@@ -63,6 +99,11 @@ class User(AbstractUser):
         if self.last_name and self.first_name:
             return f"{self.last_name}{self.first_name}"
         return self.last_name or self.first_name or self.username
+
+    @property
+    def is_system_admin(self):
+        """관리자 여부. 별도 role 필드 없이 Django 기본 is_superuser를 그대로 사용한다."""
+        return self.is_superuser
 
     @property
     def is_locked(self):

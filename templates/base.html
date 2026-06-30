@@ -40,74 +40,43 @@
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span class="nav-label">마이페이지</span>
       </a>
+      {% if user.is_system_admin %}
+      <a href="{% url 'account_list' %}" class="nav-item {% if 'account' in request.resolver_match.url_name or 'organization' in request.resolver_match.url_name %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="nav-label">계정관리</span>
+      </a>
+      {% endif %}
+    </nav>
+
+    <!-- 하단 고정: 도움말 + 알림 (프로필 카드 바로 위) -->
+    <div class="sidebar-bottom">
       <a href="{% url 'help' %}" class="nav-item {% if request.resolver_match.url_name == 'help' %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <span class="nav-label">도움말</span>
       </a>
-    </nav>
-
-    <!-- User Card -->
-    <div class="sidebar-footer">
-      <!-- <div class="user-card">
-        <div class="user-avatar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        </div> -->
-        <div style="display:flex;align-items:center;">
-          <div class="user-card" style="flex:1">
-            <div class="user-avatar">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            </div>
-            <div class="user-info">
-              <span class="user-name">{{ user.korean_name }}</span>
-              <span class="user-dept">{{ user.department }}</span>
-            </div>
-          </div>
-
-      <!-- 종 아이콘 -->
-      <div class="notif-wrap" style="position:relative">
-        <button onclick="toggleNotifDropdown()" style="
-            background:none;border:none;cursor:pointer;
-            position:relative;padding:6px;color:#fff">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+      <div class="notif-wrap" style="position:relative;">
+        <button onclick="toggleNotifDropdown()" class="nav-item notif-nav-btn">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
           </svg>
-          <span id="notifBadge" style="
-              display:none;position:absolute;top:2px;right:2px;
-              background:#e74c3c;color:#fff;border-radius:50%;
-              width:16px;height:16px;font-size:10px;
-              line-height:16px;text-align:center;">0</span>
+          <span class="nav-label">알림</span>
+          <span id="notifBadge" style="display:none;margin-left:auto;background:#e74c3c;color:#fff;border-radius:50%;min-width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;flex-shrink:0;">0</span>
         </button>
-        <div id="notifDropdown" style="
-            display:none;position:fixed;left:220px;bottom:80px;
-            width:300px;background:#fff;
-            border:1px solid #e0e0e0;border-radius:8px;
-            box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:9999;">
-          <div style="display:flex;justify-content:space-between;align-items:center;
-              padding:12px 16px;border-bottom:1px solid #f0f0f0;">
+        <div id="notifDropdown" style="display:none;position:fixed;left:220px;bottom:140px;width:300px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:9999;">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #f0f0f0;">
             <span style="font-weight:600;font-size:14px;color:#1a1a2e">알림</span>
-            <button onclick="readAllNotif()" style="
-                background:none;border:none;cursor:pointer;
-                font-size:12px;color:#4F63D2;">전체 읽음</button>
+            <button onclick="readAllNotif()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#4F63D2;">전체 읽음</button>
           </div>
-          <ul id="notifList" style="
-              list-style:none;margin:0;padding:0;
-              max-height:320px;overflow-y:auto;">
-            <li style="padding:20px;text-align:center;color:#aaa;font-size:13px">
-              새 알림이 없습니다.
-            </li>
+          <ul id="notifList" style="list-style:none;margin:0;padding:0;max-height:320px;overflow-y:auto;">
+            <li style="padding:20px;text-align:center;color:#aaa;font-size:13px">새 알림이 없습니다.</li>
           </ul>
         </div>
       </div>
     </div>
 
-    <!-- 접기 버튼 아래에 -->
-    <button class="sidebar-toggle" id="sidebarToggle" title="사이드바 접기">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-    </button>
-  </div>
-  </aside>
-    <!-- <div class="sidebar-footer">
+    <!-- 프로필 카드 + 접기 버튼 -->
+    <div class="sidebar-footer">
       <div class="user-card">
         <div class="user-avatar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -120,60 +89,71 @@
       <button class="sidebar-toggle" id="sidebarToggle" title="사이드바 접기">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
-    </div> -->
-    <!-- 알림 아이콘 추가 -->
-  <!-- <div class="notif-wrap" style="position:relative">
-    <button onclick="toggleNotifDropdown()" style="
-        background:none;border:none;cursor:pointer;
-        position:relative;padding:6px;color:currentColor">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-      </svg>
-      <span id="notifBadge" style="
-          display:none;position:absolute;top:2px;right:2px;
-          background:#e74c3c;color:#fff;border-radius:50%;
-          width:16px;height:16px;font-size:10px;
-          line-height:16px;text-align:center;">0</span>
-    </button>
-
-    <div id="notifDropdown" style="
-        display:none;position:absolute;left:0;bottom:36px;
-        width:300px;background:#fff;
-        border:1px solid #e0e0e0;border-radius:8px;
-        box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:1000;">
-      <div style="display:flex;justify-content:space-between;align-items:center;
-          padding:12px 16px;border-bottom:1px solid #f0f0f0;">
-        <span style="font-weight:600;font-size:14px;color:#1a1a2e">알림</span>
-        <button onclick="readAllNotif()" style="
-            background:none;border:none;cursor:pointer;
-            font-size:12px;color:#4F63D2;">전체 읽음</button>
-      </div>
-      <ul id="notifList" style="
-          list-style:none;margin:0;padding:0;
-          max-height:320px;overflow-y:auto;">
-        <li style="padding:20px;text-align:center;color:#aaa;font-size:13px">
-          새 알림이 없습니다.
-        </li>
-      </ul>
     </div>
-  </div>
-
-  <button class="sidebar-toggle" id="sidebarToggle" title="사이드바 접기">
-  </aside> -->
+  </aside>
 
   <!-- Main content -->
   <main class="main-content" id="mainContent">
-    {% if messages %}
-      <div class="global-messages">
-        {% for message in messages %}
-          <div class="alert alert-{{ message.tags|default:'info' }}">{{ message }}</div>
-        {% endfor %}
-      </div>
-    {% endif %}
     {% block content %}{% endblock %}
   </main>
 </div>
+
+<!-- 토스트 알림 (화면 흐름에 영향 없는 고정 위치) -->
+<style>
+  .toast-stack {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 9999;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    pointer-events: none;
+  }
+  .toast {
+    pointer-events: auto;
+    display: flex; align-items: center; gap: 10px;
+    min-width: 260px; max-width: 360px;
+    padding: 13px 16px; border-radius: 10px;
+    background: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.14);
+    font-size: 13.5px; color: #1a1a2e; line-height: 1.5;
+    border-left: 4px solid #4F63D2;
+    animation: toastSlideIn .35s ease forwards;
+  }
+  .toast.toast-success { border-left-color: #059669; }
+  .toast.toast-error { border-left-color: #dc2626; }
+  .toast.toast-warning { border-left-color: #d97706; }
+  .toast.toast-leaving { animation: toastSlideOut .3s ease forwards; }
+  .toast-text { flex: 1; }
+  .toast-close {
+    background: none; border: none; cursor: pointer; color: #aaa;
+    font-size: 16px; line-height: 1; padding: 0 2px; flex-shrink: 0;
+  }
+  .toast-close:hover { color: #666; }
+  @keyframes toastSlideIn {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes toastSlideOut {
+    from { transform: translateY(0); opacity: 1; }
+    to { transform: translateY(-20px); opacity: 0; }
+  }
+</style>
+<div class="toast-stack" id="toastStack">
+  {% if messages %}
+    {% for message in messages %}
+      <div class="toast toast-{{ message.tags|default:'info' }}">
+        <span class="toast-text">{{ message }}</span>
+        <button type="button" class="toast-close" onclick="dismissToast(this.parentElement)">&times;</button>
+      </div>
+    {% endfor %}
+  {% endif %}
+</div>
+<script>
+  function dismissToast(el) {
+    if (!el || el.classList.contains('toast-leaving')) return;
+    el.classList.add('toast-leaving');
+    setTimeout(() => el.remove(), 300);
+  }
+  document.querySelectorAll('#toastStack .toast').forEach((el) => {
+    setTimeout(() => dismissToast(el), 3500);
+  });
+</script>
 
 {% else %}
   {% block auth_content %}{% endblock %}

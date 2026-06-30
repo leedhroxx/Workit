@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}계정관리 · Workit{% endblock %}
+
+{% block extra_css %}
+<style>
+  .acct-table { width: 100%; border-collapse: collapse; font-size: 13.5px; table-layout: fixed; }
+  .acct-table th {
+    text-align: left; padding: 10px 14px; font-weight: 700; color: var(--text-secondary);
+    border-bottom: 1.5px solid var(--border); font-size: 12.5px;
+  }
+  .acct-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; }
+  .acct-table tr:last-child td { border-bottom: none; }
+  .acct-org-badge {
+    display: inline-block; font-size: 12px; font-weight: 600; color: var(--primary);
+    background: var(--primary-light); padding: 3px 10px; border-radius: 12px;
+  }
+  .acct-status-locked { color: #dc2626; font-weight: 700; font-size: 12.5px; }
+  .acct-status-active { color: #059669; font-weight: 700; font-size: 12.5px; }
+  .acct-empty { text-align: center; color: var(--text-hint); padding: 40px 0; }
+  .acct-lock-btn { display: inline-block; width: 84px; text-align: center; padding: 6px 0; box-sizing: border-box; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex; align-items:center; justify-content:space-between;">
+  <div>
+    <h1 class="page-title">계정관리</h1>
+    <p class="page-desc">전체 부서 사용자 계정을 관리합니다.</p>
+  </div>
+  <div style="display:flex; gap:8px;">
+    <a href="{% url 'organization_list' %}" class="btn btn-ghost">부서 관리</a>
+    <a href="{% url 'account_create' %}" class="btn btn-primary">+ 계정 생성</a>
+  </div>
+</div>
+
+<div class="card" style="padding:0; overflow:hidden;">
+  {% if accounts %}
+  <table class="acct-table">
+    <colgroup>
+      <col style="width:15%;">  <!-- 부서 -->
+      <col style="width:13%;">  <!-- 아이디 -->
+      <col style="width:10%;">  <!-- 이름 -->
+      <col style="width:8%;">   <!-- 직급 -->
+      <col style="width:19%;">  <!-- 연락처 -->
+      <col style="width:21%;">  <!-- 상태 -->
+      <col style="width:14%;">  <!-- 관리 -->
+    </colgroup>
+    <thead>
+      <tr>
+        <th style="text-align:center;">부서</th>
+        <th>아이디</th>
+        <th>이름</th>
+        <th style="text-align:center;">직급</th>
+        <th style="text-align:center;">연락처</th>
+        <th style="text-align:center;">상태</th>
+        <th style="text-align:center;">관리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for account in accounts %}
+      <tr>
+        <td style="text-align:center;"><span class="acct-org-badge">{{ account.organization.name|default:"미배정" }}</span></td>
+        <td>{{ account.username }}</td>
+        <td>{{ account.korean_name }}</td>
+        <td style="text-align:center;">{{ account.position }}</td>
+        <td style="text-align:center;">{{ account.phone }}</td>
+        <td style="text-align:center;">
+          {% if account.is_locked %}
+            <span class="acct-status-locked">잠김 ({{ account.get_lock_reason_display }})</span>
+          {% else %}
+            <span class="acct-status-active">정상</span>
+          {% endif %}
+        </td>
+        <td style="text-align:center;">
+          <form method="post" action="{% url 'account_lock_toggle' account.id %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-ghost btn-sm acct-lock-btn">
+              {% if account.is_locked %}잠금해제{% else %}잠금{% endif %}
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="acct-empty">등록된 계정이 없습니다.</p>
+  {% endif %}
+</div>
+{% endblock %}

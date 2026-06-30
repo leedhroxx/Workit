@@ -2,7 +2,7 @@ from django import forms
 from django.conf import settings
 from django.contrib.auth.forms import PasswordChangeForm
 
-from .models import User
+from .models import Organization, User
 
 
 class AdminUserCreationForm(forms.ModelForm):
@@ -10,7 +10,17 @@ class AdminUserCreationForm(forms.ModelForm):
 
     관리자는 비밀번호를 직접 입력하지 않고, 시스템이 초기 비밀번호를 설정한다.
     최초 로그인 사용자는 반드시 비밀번호를 변경해야 한다.
+
+    이 서비스는 세분화된 Django 권한 그룹(groups)을 사용하지 않고,
+    "관리자(is_superuser) / 일반사용자" 2단계로만 구분한다.
+    is_staff(장고 admin 사이트 접근 권한)는 사용하지 않으므로 폼에 노출하지 않는다.
     """
+
+    is_superuser = forms.BooleanField(
+        label="관리자 권한 부여",
+        required=False,
+        help_text="체크하면 전체 부서의 모든 문서를 조회/관리할 수 있는 관리자 계정이 됩니다.",
+    )
 
     class Meta:
         model = User
@@ -23,22 +33,44 @@ class AdminUserCreationForm(forms.ModelForm):
             "department",
             "position",
             "organization",
-            "is_active",
-            "is_staff",
-            "is_superuser",
-            "groups",
         )
-        widgets = {
-            "groups": forms.CheckboxSelectMultiple,
-        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["organization"].queryset = Organization.objects.filter(is_active=True)
+        self.fields["organization"].required = False
+        self.fields["organization"].empty_label = "선택하세요"
+
+    def clean_username(self):
+        username = self.cleaned_data["username"].strip()
+        if User.objects.filter(username=username).exists():
+            raise forms.ValidationError("이미 사용 중인 아이디입니다.")
+        return username
+
+    def clean(self):
+        cleaned_data = super().clean()
+        is_superuser = cleaned_data.get("is_superuser")
+        organization = cleaned_data.get("organization")
+        if not is_superuser and not organization:
+            self.add_error("organization", "일반사용자 계정은 소속부서를 반드시 선택해야 합니다.")
+        return cleaned_data
 
     def save(self, commit=True):
         user = super().save(commit=False)
+        user.is_superuser = self.cleaned_data.get("is_superuser", False)
+        # is_staff(장고 admin 사이트 로그인)는 이 서비스에서 사용하지 않으므로 항상 False로 둔다.
+        user.is_staff = False
         user.set_initial_password()
         if commit:
             user.save()
-            self.save_m2m()
         return user
+
+
+class OrganizationCreateForm(forms.ModelForm):
+    class Meta:
+        model = Organization
+        fields = ["name", "code"]
+        labels = {"name": "부서명", "code": "부서코드"}
 
 
 class WorkitPasswordChangeForm(PasswordChangeForm):

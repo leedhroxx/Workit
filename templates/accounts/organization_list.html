@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}부서 관리 · Workit{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <a href="{% url 'account_list' %}" class="back-link" style="margin-bottom:8px; display:inline-flex;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="15 18 9 12 15 6"/></svg>
+      계정관리로
+    </a>
+    <h1 class="page-title">부서 관리</h1>
+    <p class="page-desc">부서는 사용자와 문서(계약/이행) 접근 범위를 나누는 기준 단위입니다.</p>
+  </div>
+</div>
+
+<div style="display:grid; grid-template-columns: 1fr 320px; gap:20px;">
+  <div class="card" style="padding:0; overflow:hidden;">
+    {% if organizations %}
+    <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
+      <thead>
+        <tr>
+          <th style="text-align:left; padding:10px 14px; border-bottom:1.5px solid var(--border); color:var(--text-secondary); font-size:12.5px;">부서명</th>
+          <th style="text-align:left; padding:10px 14px; border-bottom:1.5px solid var(--border); color:var(--text-secondary); font-size:12.5px;">부서코드</th>
+          <th style="text-align:left; padding:10px 14px; border-bottom:1.5px solid var(--border); color:var(--text-secondary); font-size:12.5px;">소속 사용자 수</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for org in organizations %}
+        <tr>
+          <td style="padding:12px 14px; border-bottom:1px solid var(--border);">{{ org.name }}</td>
+          <td style="padding:12px 14px; border-bottom:1px solid var(--border); color:var(--text-secondary);">{{ org.code }}</td>
+          <td style="padding:12px 14px; border-bottom:1px solid var(--border);">{{ org.users.count }}명</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p style="text-align:center; color:var(--text-hint); padding:40px 0;">등록된 부서가 없습니다.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:14px; font-weight:700; margin-bottom:14px;">부서 추가</h3>
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-group">
+        <label class="form-label">부서명</label>
+        <input type="text" name="name" class="form-input" placeholder="예: 정보화사업팀" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">부서코드</label>
+        <input type="text" name="code" class="form-input" placeholder="예: IT01" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">추가</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
