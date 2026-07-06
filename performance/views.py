@@ -18,6 +18,7 @@ PROJECT_COLORS = [
 # 현재는 착수보고서(=사업수행계획서)만 평가기준서가 준비되어 있어 분석 지원
 DELIVERABLE_CRITERIA = {
     'kickoff': '사업수행계획서 품질평가 기준 (16개 목차 항목 × 9개 품질특성)',
+    'tech_apply': '기술적용결과표 체크박스 정합성 검증 (적용/부분적용/미적용/해당없음 + 사유)',
     'test_plan': None,
     'test_result': None,
     'final': None,
@@ -218,6 +219,13 @@ def deliverable_upload(request, perf_id):
         deliverable_type=d_type,
         defaults=defaults,
     )
+
+    # 사업수행계획서(kickoff) 파일이 새로 업로드되면, 그 안의 산출물계획 표를
+    # 파싱해 기술적용결과표/사업추진결과보고서 마감일을 비동기로 자동 반영
+    if d_type == 'kickoff' and f:
+        from .tasks import sync_deliverable_dates_from_kickoff_task
+        sync_deliverable_dates_from_kickoff_task.delay(d.id)
+
     return JsonResponse({'status': 'ok', 'filename': d.filename(), 'deliverable_id': d.id})
 
 
@@ -374,10 +382,30 @@ def deliverable_ai_analyze(request, del_id):
             'message': '해당 산출물 유형은 아직 평가기준서가 준비되지 않았습니다.',
         }, status=400)
 
-    # ── 목업 결과 (평가기준서: 16개 목차 항목 × 9개 품질특성) ──
+    # ── 기술적용결과표: 체크박스 정합성 검증 (규칙 기반, LLM 없음) ──
+    if d.deliverable_type == 'tech_apply':
+        if not d.file:
+            return JsonResponse({'status': 'error', 'message': '파일이 없습니다.'}, status=400)
+
+        from .tech_apply_checker import check_tech_apply
+        try:
+            result = check_tech_apply(d.file.path)
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': f'분석 중 오류가 발생했습니다: {e}'}, status=400)
+
+        return JsonResponse({
+            'status': 'ok',
+            'analysis_type': 'tech_apply_check',
+            'total': result['total'],
+            'error_count': result['error_count'],
+            'items': result['items'],
+        })
+
+    # ── 그 외(kickoff): 목업 결과 (평가기준서: 16개 목차 항목 × 9개 품질특성) ──
     result = _mock_kickoff_analysis()
     return JsonResponse({
         'status': 'ok',
+        'analysis_type': 'kickoff_quality',
         'qualities': result['qualities'],
         'sections': result['sections'],
     })

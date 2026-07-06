@@ -65,7 +65,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
           <span id="reviewCountText">보완 0 건</span>
         </div>
-        <span style="margin-left:auto; font-size:11px; color:#999; white-space:nowrap;">평가기준: 사업수행계획서 품질평가</span>
+        <span style="margin-left:auto; font-size:11px; color:#999; white-space:nowrap;">평가기준: {% if deliverable.deliverable_type == 'tech_apply' %}기술적용결과표 체크 정합성{% else %}사업수행계획서 품질평가{% endif %}</span>
       </div>
     </div>
 
@@ -77,7 +77,11 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           </div>
           <h3>AI 품질 분석</h3>
+          {% if deliverable.deliverable_type == 'tech_apply' %}
+          <p><strong>{{ criteria_label }}</strong><br>각 항목의 적용/부분적용/미적용/해당없음 체크와<br>사유 작성 여부를 규칙 기반으로 검증합니다.</p>
+          {% else %}
           <p>sLLM이 <strong>{{ criteria_label }}</strong>을 기준으로<br>목차 항목별 누락·일관성을 평가합니다.<br><span style="color:#999;font-size:12px;">법적 검토는 수행하지 않습니다.</span></p>
+          {% endif %}
           <button class="btn btn-primary" id="btnAnalyze" onclick="runAnalysis()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             AI 분석 시작
@@ -90,7 +94,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </div>
           <h3>분석 준비 중</h3>
-          <p>이 산출물 유형은 아직 평가기준서가<br>준비되지 않아 AI 분석을 지원하지 않습니다.<br><span style="color:#999;font-size:12px;">현재는 착수보고서(사업수행계획서)만 지원합니다.</span></p>
+          <p>이 산출물 유형은 아직 평가기준서가<br>준비되지 않아 AI 분석을 지원하지 않습니다.<br><span style="color:#999;font-size:12px;">현재는 사업수행계획서·기술적용결과표만 지원합니다.</span></p>
         </div>
       {% endif %}
     </div>
@@ -146,7 +150,11 @@ function runAnalysis() {
   .then(data => {
     if (data.status === 'ok') {
       ANALYSIS = data;
-      renderResults(data);
+      if (data.analysis_type === 'tech_apply_check') {
+        renderTechApplyResults(data);
+      } else {
+        renderResults(data);
+      }
     } else {
       alert(data.message || '분석 중 오류가 발생했습니다.');
       if (btn) { btn.disabled = false; btn.innerHTML = 'AI 분석 시작'; }
@@ -227,6 +235,57 @@ function renderResults(data) {
   }
 
   document.getElementById('reviewBody').innerHTML = html;
+}
+
+function renderTechApplyResults(data) {
+  const intro = document.getElementById('aiIntro');
+  if (intro) intro.style.display = 'none';
+
+  const items = data.items || [];
+  const errorItems = items.filter(it => it.error);
+  const okCount = (data.total || items.length) - errorItems.length;
+
+  const badge = document.getElementById('reviewCountBadge');
+  badge.style.display = 'flex';
+  document.getElementById('reviewCountText').textContent = `오류 ${errorItems.length} 건`;
+  // 기술적용결과표 검증 결과는 PDF 리포트 다운로드를 지원하지 않음 (kickoff 전용 기능)
+  document.getElementById('btnDownloadReport').style.display = 'none';
+
+  const CHECK_LABELS = ['적용', '부분적용', '미적용', '해당없음'];
+
+  let html = '';
+  html += `<div class="qa-summary">
+    <div class="qa-stat bad"><div class="num">${errorItems.length}</div><div class="lbl">오류 항목</div></div>
+    <div class="qa-stat ok"><div class="num">${okCount}</div><div class="lbl">정상 항목</div></div>
+    <div class="qa-stat"><div class="num">${data.total || items.length}</div><div class="lbl">전체 항목</div></div>
+  </div>`;
+
+  html += `<div style="font-size:13px; font-weight:700; color:#333; margin:6px 0 10px;">오류가 발견된 항목</div>`;
+
+  if (!errorItems.length) {
+    html += `<p style="font-size:13px; color:#888; padding:10px 0;">오류가 발견되지 않았습니다.</p>`;
+  } else {
+    html += `<ul class="issue-list">`;
+    errorItems.forEach(it => {
+      const marked = CHECK_LABELS.filter(k => it.checked && it.checked[k]);
+      const markedText = marked.length ? marked.join(', ') : '없음';
+      html += `<li class="bad">
+        <span class="ic">✕</span>
+        <span>
+          <div style="font-weight:600; margin-bottom:2px;">${it.page}p · ${escapeHtml(it.item_text)}</div>
+          <div>${escapeHtml(it.error)}</div>
+          <div style="color:#b45309; font-size:11px; margin-top:2px;">체크됨: ${markedText}${it.reason_filled ? ' · 사유 작성됨' : ''}</div>
+        </span>
+      </li>`;
+    });
+    html += `</ul>`;
+  }
+
+  document.getElementById('reviewBody').innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 window.showQualityDetail = function(idx) {

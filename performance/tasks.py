@@ -197,3 +197,35 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
         err = traceback.format_exc()
         print(f'[compare_rfp_execution_plan_task] 실패 — performance_id={performance_id}\n{err}')
         raise self.retry(exc=exc)
+
+# 사업수행계획서 → 산출물 일정 자동 반영 태스크 (규칙 기반, LLM 없음)
+# 실행 시점 : 사업수행계획서(kickoff) 파일 업로드 직후 비동기
+# 파서 : performance.deliverable_date_extractor.parse_output_plan (표 파싱)
+# 결과 : 같은 Performance의 tech_apply/final Deliverable.due_date 자동 채움
+#             (이미 수동 입력된 값은 덮어쓰지 않음)
+
+@shared_task(bind=True, max_retries=1, default_retry_delay=10)
+def sync_deliverable_dates_from_kickoff_task(self, deliverable_id: int):
+    """
+    사업수행계획서(kickoff) Deliverable을 파싱해 그 안의 '산출물계획' 표에서
+    기술적용결과표(tech_apply)/사업추진결과보고서(final)의 제출일자를 찾아
+    같은 Performance의 Deliverable.due_date에 자동 반영한다.
+    """
+    from performance.models import Deliverable
+    from performance.deliverable_date_sync import sync_deliverable_dates_from_kickoff
+
+    deliverable = Deliverable.objects.select_related('performance__contract').get(pk=deliverable_id)
+
+    try:
+        result = sync_deliverable_dates_from_kickoff(deliverable)
+        print(
+            f'[sync_deliverable_dates_from_kickoff_task] 완료 — '
+            f'deliverable_id={deliverable_id}, {result}'
+        )
+        return {'status': 'ok', 'deliverable_id': deliverable_id, **result}
+
+    except Exception as exc:
+        import traceback
+        err = traceback.format_exc()
+        print(f'[sync_deliverable_dates_from_kickoff_task] 실패 — deliverable_id={deliverable_id}\n{err}')
+        raise self.retry(exc=exc)
