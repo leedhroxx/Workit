@@ -530,7 +530,7 @@ const tooltip = Object.assign(document.createElement('div'), {className:'cal-too
 document.body.appendChild(tooltip);
 window.showCalTooltip = (e, name, type) => {
   tooltip.innerHTML = `<strong>${name}</strong><br><span>${type}</span>`;
-  tooltip.style.cssText = `display:block;left:${e.pageX+10}px;top:${e.pageY-30}px`;
+  tooltip.style.cssText = `display:block;left:${e.clientX+10}px;top:${e.clientY-30}px`;
 };
 window.hideCalTooltip = () => tooltip.style.display = 'none';
 
