@@ -473,19 +473,22 @@ def document_export_pdf(request, doc_id):
     }
     TAG_LABEL = {"blank": "빈칸", "typo": "오탈자", "legal": "법률 검토"}
 
-    # PDF 생성 
+    # PDF 생성
     buffer = io.BytesIO()
     W = A4[0] - 40 * mm
+    contract = doc.contract
 
     pdf = SimpleDocTemplate(
         buffer, pagesize=A4,
         leftMargin=20*mm, rightMargin=20*mm,
         topMargin=20*mm, bottomMargin=20*mm,
+        # PDF 내부 제목(메타데이터)도 채워야 브라우저 뷰어 탭에 "(anonymous)" 대신
+        # 실제 문서명이 뜬다 (다운로드 파일명과 별개 — Content-Disposition은 그대로 유지)
+        title=f"{contract.project_name}_{contract.company_name}_계약서_AI분석",
     )
 
     story = []
     today = datetime.now(timezone.utc).strftime("%Y년 %m월 %d일")
-    contract = doc.contract
 
     blanks = result.blanks or []
     typos = result.typos or []
@@ -521,7 +524,7 @@ def document_export_pdf(request, doc_id):
     story.append(t)
     story.append(Spacer(1, 6))
     story.append(Paragraph(
-        "※ 본 보고서는 sLLM이 자동 생성한 검토 의견입니다. 확인이 필요한 항목만 표시하며 수정안은 제공하지 않습니다.",
+        "※ 본 보고서는 AI가 자동 생성한 검토 의견입니다. 확인이 필요한 항목만 표시하며 수정안은 제공하지 않습니다.",
         S["footer"]
     ))
     story.append(Spacer(1, 8))

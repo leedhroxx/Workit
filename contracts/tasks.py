@@ -18,10 +18,25 @@ def analyze_document_task(self, doc_id):
 
     doc = ContractDocument.objects.get(pk=doc_id)
 
+    # 1. 계약서 1~2페이지 요약 표(계약 조건 + 계약당사자) 빈칸 검사
+    # 규칙 기반이라 LLM과 완전히 무관하게 항상 먼저 실행한다. 
+    # 아래 LLM 파이프라인이 (모델 미연결 등으로) 실패하더라도 이 결과는 그대로 저장·반환되어야 한다.
+    blanks = []
+    try:
+        from contracts.contract_field_checker import check_contract_fields
+        blanks = check_contract_fields(doc.file.path)
+    except Exception:
+        import traceback
+        print(f'[analyze_document_task] 계약서 빈칸 검사 실패 (doc_id={doc_id}):\n{traceback.format_exc()}')
+
+    typos: list = []
+    legal_issues: list = []
+
+    # 2. RAG + sLLM 법률 조항 검토 (실패해도 위 빈칸 결과는 유지한 채 계속 진행)
     try:
         file_text = extract_text(doc.file.path)
         if not file_text.strip():
-            return {'status': 'error', 'message': '텍스트 추출 실패'}
+            raise ValueError('텍스트 추출 실패')
 
         clause_positions = {}
         file_path_lower = doc.file.path.lower()
@@ -116,12 +131,12 @@ def analyze_document_task(self, doc_id):
             )
             inference_results.append({
                 'clause_number': item['clause_number'],
-                'clause_text':   item['clause_text'],
-                'risk_names':    item.get('categories', []),
-                'page':          item.get('page'),
-                'bbox':          item.get('bbox'),
-                'fragments':     item.get('fragments'),
-                'prediction':    prediction,
+                'clause_text': item['clause_text'],
+                'risk_names': item.get('categories', []),
+                'page': item.get('page'),
+                'bbox': item.get('bbox'),
+                'fragments': item.get('fragments'),
+                'prediction': prediction,
             })
             done += 1
             self.update_state(
@@ -130,35 +145,39 @@ def analyze_document_task(self, doc_id):
             )
 
         parsed = parse_to_workit(inference_results)
-        AIReviewResult.objects.update_or_create(
-            document=doc,
-            defaults={
-                'blanks':       parsed['blanks'],
-                'typos':        parsed['typos'],
-                'legal_issues': parsed['legal_issues'],
-            }
+        typos = parsed['typos']
+        legal_issues = parsed['legal_issues']
+
+    except Exception:
+        import traceback
+        print(
+            f'[analyze_document_task] LLM 법률 검토 실패 (doc_id={doc_id}) - '
+            f'규칙 기반 빈칸 검사 결과는 그대로 저장/반환합니다:\n{traceback.format_exc()}'
         )
 
-        return {
-            'status': 'ok',
-            'total': len(parsed['legal_issues']),
-            'blanks': parsed['blanks'],
-            'typos': parsed['typos'],
-            'legal_issues': parsed['legal_issues'],
+    # LLM 단계가 실패해도 규칙 기반 빈칸 검사 결과(blanks)는 항상 저장·반환한다
+    AIReviewResult.objects.update_or_create(
+        document=doc,
+        defaults={
+            'blanks': blanks,
+            'typos': typos,
+            'legal_issues': legal_issues,
         }
+    )
 
-    except Exception as e:
-        import traceback
-        return {'status': 'error', 'message': traceback.format_exc()}
+    return {
+        'status': 'ok',
+        'total': len(legal_issues),
+        'blanks': blanks,
+        'typos': typos,
+        'legal_issues': legal_issues,
+    }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # RFP 파싱 태스크 (규칙 기반, LLM 없음)
-#
 # 실행 시점 : document_complete_review (이행관리 이관) 직후 비동기
-# 파서      : contracts.parsers.parse_rfp (키워드·정규식 기반)
-# 결과      : contracts.models.RFPParsedData.parsed_json (RDS)
-# ─────────────────────────────────────────────────────────────────────────────
+# 파서 : contracts.parsers.parse_rfp (키워드·정규식 기반)
+# 결과 : contracts.models.RFPParsedData.parsed_json (RDS)
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=10)
 def parse_rfp_task(self, rfp_doc_id: int):

@@ -60,8 +60,8 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           </div>
           <h3>AI 분석 결과</h3>
-          <p>sLLM이 문서를 분석해 <strong>확인이 필요한 항목</strong>만 표시합니다.<br>법률 항목은 근거만 제시하며 수정안은 제공하지 않습니다.</p>
-          <p>Workit 은 AI이며 실수할 수 있습니다. 응답을 다시 한번 확인해 주세요.</p>
+          <p>sLLM이 문서를 분석해 <strong>확인이 필요한 항목</strong>만 표시합니다.<br><span style="white-space:nowrap;">법률 항목은 근거만 제시하며 수정안은 제공하지 않습니다.</span></p>
+          <p>Workit 은 AI이며 실수할 수 있습니다.<br><span style="display:inline-block; padding-left:12px;">응답을 다시 한번 확인해 주세요.</span></p>
           <button class="btn btn-primary" id="btnAnalyze" onclick="runAnalysis()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             계약서 AI 분석 시작
@@ -179,13 +179,14 @@ function renderResults(blanks, typos, legal) {
 
   if (blanks.length > 0) {
     blanks.forEach(b => {
-      html += `<div class="review-card review-card--blank" style="margin-bottom:10px;">
+      const hasBbox = b.bbox && b.page;
+      html += `<div class="review-card review-card--blank${hasBbox ? ' review-card--clickable' : ''}" style="margin-bottom:10px; border:1.5px solid transparent; ${hasBbox ? 'cursor:pointer;' : ''}"
+        ${hasBbox ? `data-page="${b.page}" data-bbox='${JSON.stringify(b.bbox)}' data-cell="true" onclick="jumpToClause(this)"` : ''}>
         <div class="review-card-header">
           <span class="review-tag tag--blank">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             빈칸
           </span>
-          <span class="review-location">${b.location || ''}</span>
         </div>
         <p class="review-desc">${b.description}</p>
         ${b.text ? `<div class="review-quote">"${b.text}"</div>` : ''}
@@ -305,8 +306,8 @@ const HIGHLIGHT_PADDING_PT = 6; // 박스 여유 공간 (PDF 포인트 단위, 7
         img.style.cssText = 'width:100%; display:block;';
         img.alt = `페이지 ${p}`;
 
-        wrap.appendChild(pageNum);
         wrap.appendChild(img);
+        wrap.appendChild(pageNum);
         container.appendChild(wrap);
       }
 
@@ -314,6 +315,7 @@ const HIGHLIGHT_PADDING_PT = 6; // 박스 여유 공간 (PDF 포인트 단위, 7
       pendingHighlights.forEach(h => drawHighlightBox(h.page, h.bbox, h.elId, {
         scrollTo: h.isFirst !== false,
         flashIt: true,
+        cell: h.cell || false,
       }));
       pendingHighlights = [];
     });
@@ -327,7 +329,7 @@ let pendingHighlights = [];
  * 이미지가 아직 안 로드됐으면 onload 이후로 미룬다.
  */
 function drawHighlightBox(pageNumber, bbox, elId, options = {}) {
-  const { scrollTo = true, flashIt = true } = options;
+  const { scrollTo = true, flashIt = true, cell = false } = options;
 
   const wrap = document.querySelector(`.pdf-page-wrap[data-page-number="${pageNumber}"]`);
   if (!wrap) return null;
@@ -348,17 +350,29 @@ function drawHighlightBox(pageNumber, bbox, elId, options = {}) {
     const displayScaleX = img.clientWidth / naturalW;
     const displayScaleY = img.clientHeight / naturalH;
 
-    // bbox(텍스트 영역) 사방에 패딩을 더해 박스가 글자를 여유 있게 감싸도록 한다.
-    // 단, bbox.width는 clause_locator.py에서 "페이지 끝 - 20pt"로 이미 넉넉하게 잡혀있어
-    // (실제 텍스트보다 오른쪽에 여유 공간이 더 있음) 왼쪽과 동일하게 패딩을 더하면
-    // 오른쪽 여백이 과도해진다. 그래서 너비는 늘리지 않고 좌측 이동분만 보정한다.
-    // (왼쪽으로 PADDING만큼 이동 + 오른쪽 끝은 RIGHT_TRIM만큼 당겨서 좌우 여백을 비슷하게 맞춘다)
-    const RIGHT_TRIM_PT = 20; // bbox.width에 내재된 과도한 우측 여유 공간 보정값
+    let paddedX, paddedY, paddedW, paddedH;
 
-    const paddedX = bbox.x - HIGHLIGHT_PADDING_PT;
-    const paddedY = bbox.y - HIGHLIGHT_PADDING_PT;
-    const paddedW = bbox.width + HIGHLIGHT_PADDING_PT - RIGHT_TRIM_PT;
-    const paddedH = bbox.height + HIGHLIGHT_PADDING_PT * 1.1;
+    if (cell) {
+      // 표 셀 bbox(빈칸 검사 등)는 이미 셀 테두리 그대로라 바깥으로 부풀리지 않고,
+      // 오히려 테두리선과 겹치지 않도록 사방으로 살짝 안쪽으로 줄여서 그린다.
+      const CELL_INSET_PT = 2;
+      paddedX = bbox.x + CELL_INSET_PT;
+      paddedY = bbox.y + CELL_INSET_PT;
+      paddedW = bbox.width - CELL_INSET_PT * 2;
+      paddedH = bbox.height - CELL_INSET_PT * 2;
+    } else {
+      // bbox(텍스트 영역) 사방에 패딩을 더해 박스가 글자를 여유 있게 감싸도록 한다.
+      // 단, bbox.width는 clause_locator.py에서 "페이지 끝 - 20pt"로 이미 넉넉하게 잡혀있어
+      // (실제 텍스트보다 오른쪽에 여유 공간이 더 있음) 왼쪽과 동일하게 패딩을 더하면
+      // 오른쪽 여백이 과도해진다. 그래서 너비는 늘리지 않고 좌측 이동분만 보정한다.
+      // (왼쪽으로 PADDING만큼 이동 + 오른쪽 끝은 RIGHT_TRIM만큼 당겨서 좌우 여백을 비슷하게 맞춘다)
+      const RIGHT_TRIM_PT = 20; // bbox.width에 내재된 과도한 우측 여유 공간 보정값
+
+      paddedX = bbox.x - HIGHLIGHT_PADDING_PT;
+      paddedY = bbox.y - HIGHLIGHT_PADDING_PT;
+      paddedW = bbox.width + HIGHLIGHT_PADDING_PT - RIGHT_TRIM_PT;
+      paddedH = bbox.height + HIGHLIGHT_PADDING_PT * 1.1;
+    }
 
     const left = paddedX * PAGE_SCALE * displayScaleX;
     const top = paddedY * PAGE_SCALE * displayScaleY;
@@ -447,20 +461,21 @@ function jumpToClause(cardEl) {
     return;
   }
 
-  // 기존 구조: 조(條) 단위 단일 bbox
+  // 기존 구조: 조(條) 단위 단일 bbox (빈칸 카드도 이 경로를 씀 — data-cell="true")
   const page = parseInt(cardEl.dataset.page, 10);
   const bbox = JSON.parse(cardEl.dataset.bbox);
   if (!page || !bbox) return;
+  const isCell = cardEl.dataset.cell === 'true';
 
   const elId = `clause-${page}-${Math.round(bbox.x)}-${Math.round(bbox.y)}`;
 
   const wrap = document.querySelector(`.pdf-page-wrap[data-page-number="${page}"]`);
   if (!wrap) {
-    pendingHighlights.push({ page, bbox, elId, isFirst: true });
+    pendingHighlights.push({ page, bbox, elId, isFirst: true, cell: isCell });
     return;
   }
 
-  drawHighlightBox(page, bbox, elId);
+  drawHighlightBox(page, bbox, elId, { cell: isCell });
 }
 </script>
 {% endblock %}
