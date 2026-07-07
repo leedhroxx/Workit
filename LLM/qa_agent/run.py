@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from qa_agent.engine import review_section_mapping
@@ -31,6 +32,56 @@ def load_text(path: str) -> str:
 def load_json(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def display_label(item: dict) -> str:
+    return (
+        item.get("location")
+        or item.get("title")
+        or item.get("code")
+        or "-"
+    )
+
+
+ISSUE_TYPE_LABELS = {
+    "section_title_mismatch": "소제목 검토",
+    "content_misplaced": "내용 위치 검토",
+    "section_content_mismatch": "소제목 및 내용 검토",
+    "section_title_content_mismatch": "소제목 및 내용 검토",
+    "missing_section": "소제목 누락",
+    "empty_section": "본문 누락",
+    "unrecognized_section": "미등록 소제목",
+    "section_order_mismatch": "소제목 순서 검토",
+    "paragraph_missing": "문단 누락",
+    "paragraph_misplaced": "문단 위치 검토",
+}
+
+
+def display_issue_type(issue_type: str) -> str:
+    return ISSUE_TYPE_LABELS.get(issue_type, issue_type)
+
+
+def clean_message_codes(message: str) -> str:
+    return re.sub(r"\(([A-Z]{3}-\d+(?:-\d+)*)\)", "", message or "").strip()
+
+
+def normalize_comment_focus(message: str) -> str:
+    """
+    평가셋 코멘트의 확인 대상을 부드럽게 통일한다.
+    예: 원문의 제안요청 개요 소제목을 확인하세요.
+        -> 원문의 제안요청 개요 부분을 확인하세요.
+    """
+    message = message or ""
+
+    # 원문의 OO 소제목/내용/본문/섹션/문단 확인 -> 원문의 OO 부분 확인
+    message = re.sub(
+        r"원문의 ([^'\n]+?) (?:소제목과 내용을 함께|소제목|내용|본문|섹션|문단 위치|문단)을 확인하세요",
+        r"원문의 \1 부분을 확인하세요",
+        message,
+    )
+
+    # 위 문장 끝이 '확인하세요.'처럼 마침표를 포함하는 경우도 자연스럽게 유지
+    return message.strip()
 
 
 def print_report(report: dict) -> None:
@@ -50,9 +101,9 @@ def print_report(report: dict) -> None:
     if not issues:
         print("- 없음")
     for issue in issues:
-        code = issue.get("code") or "-"
-        title = issue.get("title") or "-"
-        print(f"- [{issue['issue_type']}] {code} / {title}: {issue['message']}")
+        label = display_label(issue)
+        message = clean_message_codes(issue.get("message") or "")
+        print(f"- [{display_issue_type(issue['issue_type'])}] {label}: {message}")
         if issue.get("sample"):
             print(f"    예시: {issue['sample']}")
 
@@ -61,10 +112,10 @@ def print_report(report: dict) -> None:
         print()
         print(f"[평가셋 코멘트: {len(comments)}건]")
         for comment in comments:
-            code = comment.get("code") or "-"
-            title = comment.get("title") or "-"
-            message = comment.get("message") or ""
-            print(f"- {code} / {title}: {message}")
+            label = display_label(comment)
+            message = clean_message_codes(comment.get("message") or "")
+            message = normalize_comment_focus(message)
+            print(f"- {label}: {message}")
 
 
 def format_auto_proceed(report: dict) -> str:

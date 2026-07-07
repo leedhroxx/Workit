@@ -33,6 +33,7 @@ class SectionIssue:
     issue_type: str
     code: str = ""
     title: str = ""
+    location: str = ""
     message: str = ""
     sample: str = ""
     severity: str = "info"
@@ -176,6 +177,7 @@ class SectionMappingReviewAgent:
 
         comments = self._build_issue_comments(issues)
         report_issues = self._merge_title_content_issues(issues)
+        self._attach_issue_locations(report_issues)
 
         return SectionReviewReport(
             passed=review_status == "PASS",
@@ -188,6 +190,18 @@ class SectionMappingReviewAgent:
             issues=report_issues,
             comments=comments,
         )
+
+    def _attach_issue_locations(self, issues: List[SectionIssue]) -> None:
+        for issue in issues:
+            issue.location = self._section_location(issue.code, issue.title)
+
+    def _section_location(self, code: str, title: str = "") -> str:
+        spec = self._spec_by_code(code)
+        if spec and spec.group:
+            return f"{spec.group} > {spec.title}"
+        if spec:
+            return spec.title
+        return title or code or "-"
 
     def _build_issue_comments(self, issues: List[SectionIssue]) -> List[Dict[str, str]]:
         comments: List[Dict[str, str]] = []
@@ -316,6 +330,7 @@ class SectionMappingReviewAgent:
                 {
                     "code": issue.code,
                     "title": issue.title,
+                    "location": self._section_location(issue.code, issue.title),
                     "message": message,
                 }
             )
