@@ -21,3 +21,5 @@ vectorstore/
 data/
 
 models/rag/not in use/
+
+models/

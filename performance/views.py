@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -9,19 +10,20 @@ from .models import Performance, Deliverable
 from .models import Deliverable, Notification, Performance
 from django.utils import timezone
 
+logger = logging.getLogger(__name__)
+
 PROJECT_COLORS = [
     '#4F63D2', '#00B894', '#6C5CE7', '#E67E22',
     '#E74C3C', '#1ABC9C', '#2980B9', '#8E44AD',
 ]
 
 # 산출물 유형별 평가 기준 문서 매핑
-# 현재는 착수보고서(=사업수행계획서)만 평가기준서가 준비되어 있어 분석 지원
 DELIVERABLE_CRITERIA = {
     'kickoff': '사업수행계획서 품질평가 기준 (16개 목차 항목 × 9개 품질특성)',
     'tech_apply': '기술적용결과표 체크박스 정합성 검증 (적용/부분적용/미적용/해당없음 + 사유)',
     'test_plan': None,
     'test_result': None,
-    'final': None,
+    'final': '사업추진결과보고서 소제목 매핑 QA 검수 · RFP 대응 비교',
 }
 
 
@@ -224,12 +226,16 @@ def deliverable_upload(request, perf_id):
     # QA 검수 결과·RFP 비교 결과는 더 이상 유효하지 않으므로 폐기한다.
     # (재분석 전까지는 deliverable_analyze 화면에서 "분석 시작" 단계부터 다시 노출됨)
     if d_type == 'kickoff' and f:
-        from .models import ExecutionPlanParsedData, RFPComparisonResult
+        from .models import ExecutionPlanParsedData, RFPComparisonResult, PEPFinalComparisonResult
         ExecutionPlanParsedData.objects.filter(deliverable=d).update(
             parsed_json={}, qa_report={}, parse_status='pending',
             parsed_at=None, error_message='',
         )
         RFPComparisonResult.objects.filter(performance=perf).delete()
+        # 사업추진결과보고서(final)의 2단계 비교(PEP ↔ RPT)도 이 사업수행계획서를
+        # 근거로 만든 것이라 함께 폐기한다 — 안 지우면 final 분석 화면에 예전
+        # 사업수행계획서 기준으로 만들어진 낡은 비교 결과가 그대로 남아있게 된다.
+        PEPFinalComparisonResult.objects.filter(performance=perf).delete()
 
         # 그 안의 산출물계획 표를 파싱해 기술적용결과표/사업추진결과보고서
         # 마감일을 비동기로 자동 반영
@@ -241,6 +247,16 @@ def deliverable_upload(request, perf_id):
     if d_type == 'tech_apply' and f:
         from .models import TechApplyCheckResult
         TechApplyCheckResult.objects.filter(deliverable=d).delete()
+
+    # 사업추진결과보고서(final) 파일이 새로 바뀌면, kickoff와 동일한 이유로
+    # 이전 QA 검수 결과·RFP 비교 결과를 폐기한다.
+    if d_type == 'final' and f:
+        from .models import FinalReportParsedData, PEPFinalComparisonResult
+        FinalReportParsedData.objects.filter(deliverable=d).update(
+            parsed_json={}, qa_report={}, parse_status='pending',
+            parsed_at=None, error_message='',
+        )
+        PEPFinalComparisonResult.objects.filter(performance=perf).delete()
 
     return JsonResponse({'status': 'ok', 'filename': d.filename(), 'deliverable_id': d.id})
 
@@ -303,19 +319,31 @@ def deliverable_analyze(request, del_id):
     )
     analyzable = DELIVERABLE_CRITERIA.get(d.deliverable_type) is not None
     is_kickoff = d.deliverable_type == 'kickoff'
+    is_final = d.deliverable_type == 'final'
 
-    # 이미 실행된 QA 검수 / RFP 비교 결과가 있으면 새로고침해도 그대로 복원
+    # 이미 실행된 QA 검수 / 2단계 비교 결과가 있으면 새로고침해도 그대로 복원.
+    # kickoff(사업수행계획서)는 RFP와, final(사업추진결과보고서)은 사업수행계획서(PEP)와
+    # 비교한다는 점만 다르고 "파싱 → qa_agent 검수 → 2단계 비교" 흐름 자체는 동일하다.
     qa_data = None
     comparison_data = None
     if is_kickoff:
         parsed = getattr(d, 'parsed_data', None)
+        comparison_qs = d.performance.rfp_comparisons
+    elif is_final:
+        parsed = getattr(d, 'final_parsed_data', None)
+        comparison_qs = d.performance.pep_final_comparisons
+    else:
+        parsed = None
+        comparison_qs = None
+
+    if is_kickoff or is_final:
         if parsed and parsed.parse_status in ('done', 'failed'):
             qa_data = {
                 'parse_status': parsed.parse_status,
                 'qa_report': parsed.qa_report,
                 'error_message': parsed.error_message,
             }
-        comparison = d.performance.rfp_comparisons.first()
+        comparison = comparison_qs.first() if comparison_qs is not None else None
         if comparison:
             comparison_data = comparison.comparison_json
 
@@ -337,6 +365,8 @@ def deliverable_analyze(request, del_id):
         'analyzable': analyzable,
         'criteria_label': DELIVERABLE_CRITERIA.get(d.deliverable_type) or '',
         'is_kickoff': is_kickoff,
+        'is_final': is_final,
+        'has_qa_flow': is_kickoff or is_final,
         'qa_data': qa_data,
         'comparison_data': comparison_data,
         'tech_apply_data': tech_apply_data,
@@ -347,24 +377,29 @@ def deliverable_analyze(request, del_id):
 @require_POST
 def deliverable_parse_qa(request, del_id):
     """
-    사업수행계획서(kickoff) 파일을 규칙 기반으로 파싱하고, LLM/qa_agent로
-    '원본 ↔ 파싱 결과'의 소제목 매핑을 검수한다.
+    사업수행계획서(kickoff)/사업추진결과보고서(final) 파일을 규칙 기반으로
+    파싱하고, LLM/qa_agent로 '원본 ↔ 파싱 결과'의 소제목 매핑을 검수한다.
 
-    호출 시점: 이행관리에서 "수행계획서 분석" 버튼 클릭.
+    호출 시점: 이행관리에서 "분석 시작" 버튼 클릭.
     """
     d = get_object_or_404(
         Deliverable, pk=del_id,
         performance__contract__created_by=request.user,
     )
-    if d.deliverable_type != 'kickoff':
-        return JsonResponse({'status': 'error', 'message': '사업수행계획서만 지원합니다.'}, status=400)
+    if d.deliverable_type not in ('kickoff', 'final'):
+        return JsonResponse({'status': 'error', 'message': '사업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
     if not d.file:
         return JsonResponse({'status': 'error', 'message': '파일이 없습니다.'}, status=400)
 
-    from .tasks import parse_execution_plan_task
-    parse_execution_plan_task.apply(args=(d.id,)).get()
+    if d.deliverable_type == 'kickoff':
+        from .tasks import parse_execution_plan_task
+        parse_execution_plan_task.apply(args=(d.id,)).get()
+        parsed = d.parsed_data
+    else:
+        from .tasks import parse_final_report_task
+        parse_final_report_task.apply(args=(d.id,)).get()
+        parsed = d.final_parsed_data
 
-    parsed = d.parsed_data
     parsed.refresh_from_db()
     if parsed.parse_status == 'failed':
         return JsonResponse({
@@ -383,7 +418,8 @@ def deliverable_parse_qa(request, del_id):
 @require_POST
 def deliverable_compare_rfp(request, del_id):
     """
-    파싱된 RFP와 사업수행계획서를 구조적으로 비교한다 (RFP ↔ 수행계획서 내용 일치 여부).
+    사업수행계획서(kickoff)는 RFP와, 사업추진결과보고서(final)는 사업수행계획서(PEP)와
+    구조적으로 비교한다 — final은 "계획한 대로 실제로 이행됐는지"를 확인한다.
 
     호출 시점: QA 검수 결과 확인 후 "그대로 진행" 버튼 클릭 (반려 없이 비교로 넘어갈 때).
     """
@@ -391,20 +427,71 @@ def deliverable_compare_rfp(request, del_id):
         Deliverable, pk=del_id,
         performance__contract__created_by=request.user,
     )
-    if d.deliverable_type != 'kickoff':
-        return JsonResponse({'status': 'error', 'message': '사업수행계획서만 지원합니다.'}, status=400)
+    if d.deliverable_type not in ('kickoff', 'final'):
+        return JsonResponse({'status': 'error', 'message': '사업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
 
-    from .tasks import compare_rfp_execution_plan_task
-    result = compare_rfp_execution_plan_task.apply(args=(d.performance_id,)).get()
+    # 반려하지 않고 그대로 2단계로 넘어온 경우, 1단계에 이슈가 있었는지 남겨둔다
+    # (반려 여부는 deliverable_reject_qa에서 별도로 기록한다).
+    from .models import AIAnalysisLog
+    parsed = d.parsed_data if d.deliverable_type == 'kickoff' else d.final_parsed_data
+    qa_issues = (parsed.qa_report or {}).get('issues', []) if parsed else []
+    if qa_issues:
+        logger.info(
+            '[QA] %s(deliverable_id=%s) 1단계 이슈 %d건 있었지만 반려 없이 2단계 비교분석 진행함',
+            d.get_deliverable_type_display(), d.id, len(qa_issues),
+        )
+        AIAnalysisLog.log(
+            d, 'proceed_with_issue', issue_count=len(qa_issues), user=request.user,
+        )
+    else:
+        logger.info(
+            '[QA] %s(deliverable_id=%s) 1단계 이슈 없이 2단계 비교분석 진행',
+            d.get_deliverable_type_display(), d.id,
+        )
+        AIAnalysisLog.log(d, 'proceed_no_issue', user=request.user)
+
+    if d.deliverable_type == 'kickoff':
+        from .tasks import compare_rfp_execution_plan_task
+        result = compare_rfp_execution_plan_task.apply(args=(d.performance_id,)).get()
+        comparison_qs = d.performance.rfp_comparisons
+    else:
+        from .tasks import compare_pep_final_report_task
+        result = compare_pep_final_report_task.apply(args=(d.performance_id,)).get()
+        comparison_qs = d.performance.pep_final_comparisons
 
     if result.get('status') != 'ok':
         return JsonResponse(result, status=400)
 
-    comparison = d.performance.rfp_comparisons.first()
+    comparison = comparison_qs.first()
     return JsonResponse({
         'status': 'ok',
         'comparison': comparison.comparison_json if comparison else {},
     })
+
+
+@login_required
+@require_POST
+def deliverable_reject_qa(request, del_id):
+    """
+    1단계 QA 검수에서 "반려 (다시 업로드)"를 눌렀을 때 호출된다.
+    실제 처리(파일 재업로드 유도)는 프론트에서 하고, 여기서는 반려 사실만 기록한다.
+    """
+    d = get_object_or_404(
+        Deliverable, pk=del_id,
+        performance__contract__created_by=request.user,
+    )
+    if d.deliverable_type not in ('kickoff', 'final'):
+        return JsonResponse({'status': 'error', 'message': '사업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
+
+    from .models import AIAnalysisLog
+    parsed = d.parsed_data if d.deliverable_type == 'kickoff' else d.final_parsed_data
+    qa_issues = (parsed.qa_report or {}).get('issues', []) if parsed else []
+    logger.info(
+        '[QA] %s(deliverable_id=%s) 1단계 이슈 %d건 확인 후 반려(다시 업로드) 선택함',
+        d.get_deliverable_type_display(), d.id, len(qa_issues),
+    )
+    AIAnalysisLog.log(d, 'reject', issue_count=len(qa_issues), user=request.user)
+    return JsonResponse({'status': 'ok'})
 
 
 @login_required
@@ -513,6 +600,25 @@ def deliverable_ai_analyze(request, del_id):
             deliverable=d,
             defaults={'result_json': result, 'checked_at': timezone.now()},
         )
+
+        from .models import AIAnalysisLog
+        if result['error_count']:
+            logger.info(
+                '[QA] 기술적용결과표(deliverable_id=%s) AI 분석 이슈 %d건 발견 (전체 %d건 중)',
+                d.id, result['error_count'], result['total'],
+            )
+            AIAnalysisLog.log(
+                d, 'analysis_issue', issue_count=result['error_count'],
+                detail={'total': result['total']}, user=request.user,
+            )
+        else:
+            logger.info(
+                '[QA] 기술적용결과표(deliverable_id=%s) AI 분석 이슈 없음 (전체 %d건)',
+                d.id, result['total'],
+            )
+            AIAnalysisLog.log(
+                d, 'analysis_ok', detail={'total': result['total']}, user=request.user,
+            )
 
         return JsonResponse({
             'status': 'ok',

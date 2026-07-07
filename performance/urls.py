@@ -13,6 +13,7 @@ urlpatterns = [
     path('deliverable/<int:del_id>/analyze/', views.deliverable_analyze, name='deliverable_analyze'),
     path('deliverable/<int:del_id>/parse-qa/', views.deliverable_parse_qa, name='deliverable_parse_qa'),
     path('deliverable/<int:del_id>/compare-rfp/', views.deliverable_compare_rfp, name='deliverable_compare_rfp'),
+    path('deliverable/<int:del_id>/reject-qa/', views.deliverable_reject_qa, name='deliverable_reject_qa'),
     path('deliverable/<int:del_id>/pages/', views.deliverable_page_count, name='deliverable_page_count'),
     path('deliverable/<int:del_id>/page/<int:page>/', views.deliverable_page_image, name='deliverable_page_image'),
     path('deliverable/<int:del_id>/ai-analyze/', views.deliverable_ai_analyze, name='deliverable_ai_analyze'),

@@ -133,7 +133,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="closeModal('modalFileChange')">취소</button>
-        <button type="button" class="btn btn-primary" onclick="submitFileChange()">변경</button>
+        <button type="button" class="btn btn-primary" id="fcSubmitBtn" onclick="submitFileChange()">변경</button>
       </div>
     </form>
   </div>
@@ -827,6 +827,13 @@ window.submitFileChange = function() {
   fd.append('deliverable_type', type);
   fd.append('file', file);
 
+  const btn = document.getElementById('fcSubmitBtn');
+  const cancelBtn = document.querySelector('#modalFileChange .btn-ghost');
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 변경 중...';
+
   fetch(`/performance/${perfId}/deliverable/upload/`, {
     method: 'POST',
     body: fd,
@@ -836,7 +843,18 @@ window.submitFileChange = function() {
   .then(data => {
     if (data.status === 'ok') {
       location.reload();
+    } else {
+      alert(data.message || '파일 변경 중 오류가 발생했습니다.');
+      btn.disabled = false;
+      if (cancelBtn) cancelBtn.disabled = false;
+      btn.innerHTML = originalLabel;
     }
+  })
+  .catch(() => {
+    alert('파일 변경 요청에 실패했습니다.');
+    btn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
+    btn.innerHTML = originalLabel;
   });
 };
 

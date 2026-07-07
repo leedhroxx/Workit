@@ -776,6 +776,38 @@ class SectionMappingReviewAgent:
 
     _TOC_WINDOW_RATIO = 0.15
     _TOC_MIN_CLUSTER_RATIO = 0.5
+    _TOC_LISTING_WINDOW = 800
+
+    def _skip_past_front_matter_listing(
+        self,
+        original_norm: str,
+        ordered_specs: List[SectionSpec],
+    ) -> int:
+        """
+        표지 요약표(예: 사업명·사업기간을 나열한 첫 페이지 표)에 소제목과 같은 문구가
+        목차보다도 먼저, 실제 본문보다도 먼저 나오는 문서가 있다. clean_text()가
+        '목차' 단독 줄은 지워주지만 표지 요약표나 목차 나열 자체는 남아 있고, 표지
+        요약표는 극소수 항목만 중복되기 때문에 아래 _find_section_positions()의
+        비율 기반 재탐색(전체 항목의 절반 이상이 몰려 있어야 함)만으로는 걸러지지
+        않는다. 문서 맨 앞 구간 안에 '마지막 소제목'까지 나오는지 확인해서, 나오면
+        표지 요약표+목차 나열을 통째로 건너뛴다.
+        """
+        if not ordered_specs:
+            return 0
+
+        last_spec = ordered_specs[-1]
+        window = original_norm[: self._TOC_LISTING_WINDOW]
+
+        listing_last_pos = -1
+        for candidate in last_spec.title_candidates():
+            candidate_norm = normalize_compare_text(candidate)
+            if not candidate_norm:
+                continue
+            idx = window.find(candidate_norm)
+            if idx >= 0:
+                listing_last_pos = max(listing_last_pos, idx + len(candidate_norm))
+
+        return listing_last_pos if listing_last_pos >= 0 else 0
 
     def _sequential_search(
         self,
@@ -815,7 +847,8 @@ class SectionMappingReviewAgent:
         original_norm, index_map = normalize_with_map(original_clean)
         ordered_specs = [spec for spec in self.sections if spec.code in codes]
 
-        positions = self._sequential_search(original_norm, ordered_specs, start_from=0)
+        initial_start = self._skip_past_front_matter_listing(original_norm, ordered_specs)
+        positions = self._sequential_search(original_norm, ordered_specs, start_from=initial_start)
 
         doc_len = len(original_norm)
         toc_window = doc_len * self._TOC_WINDOW_RATIO
@@ -890,7 +923,10 @@ class SectionMappingReviewAgent:
 
             title_norm = normalize_compare_text(positions[code][1])
             lines = raw_slice.split("\n", 1)
-            if len(lines) > 1 and normalize_compare_text(lines[0]) == title_norm:
+            # "(Lessons Learned)"처럼 소제목 뒤에 영문 부제·괄호가 덧붙는 경우
+            # 정확히 일치(==)하지 않아 제목 줄이 안 지워지는 문제가 있었다.
+            # 제목으로 시작하는지(startswith)만 확인해 부제가 붙어도 제대로 지운다.
+            if len(lines) > 1 and normalize_compare_text(lines[0]).startswith(title_norm):
                 raw_slice = lines[1]
 
             raw_slices[code] = raw_slice.strip()
@@ -994,7 +1030,10 @@ class SectionMappingReviewAgent:
 
             title_norm = normalize_compare_text(positions[code][1])
             lines = raw_slice.split("\n", 1)
-            if len(lines) > 1 and normalize_compare_text(lines[0]) == title_norm:
+            # "(Lessons Learned)"처럼 소제목 뒤에 영문 부제·괄호가 덧붙는 경우
+            # 정확히 일치(==)하지 않아 제목 줄이 안 지워지는 문제가 있었다.
+            # 제목으로 시작하는지(startswith)만 확인해 부제가 붙어도 제대로 지운다.
+            if len(lines) > 1 and normalize_compare_text(lines[0]).startswith(title_norm):
                 raw_slice = lines[1]
 
             raw_slices[code] = raw_slice

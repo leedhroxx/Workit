@@ -139,11 +139,20 @@ DEFAULT_FROM_EMAIL = f'Workit <{os.environ.get("EMAIL_HOST_USER")}>'
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {'format': '[{levelname}] {name}: {message}', 'style': '{'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'simple'},
+    },
     'loggers': {
         # pdfminer(pdfplumber/pdf2image 등이 내부적으로 사용)는 폰트 디스크립터에
         # FontBBox가 없거나 형식이 이상한 PDF를 만나면 WARNING을 남기는데, 실제
         # 텍스트 추출 결과에는 영향이 없는 흔한 PDF 생성기 특성이라 로그만 시끄러워진다.
         # ERROR 이상만 남기도록 낮춘다 (실제 파싱 실패는 우리 쪽 코드가 별도로 예외 처리함).
         'pdfminer': {'level': 'ERROR'},
+        # 산출물 AI 분석(1단계 QA 이슈 유무, 반려/그대로 진행 여부)을 콘솔(runserver·
+        # celery worker 터미널)에 남긴다.
+        'performance': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
     },
 }

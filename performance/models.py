@@ -191,3 +191,136 @@ class TechApplyCheckResult(models.Model):
 
     def __str__(self):
         return f'기술적용결과표 검증 — {self.deliverable}'
+
+
+class FinalReportParsedData(models.Model):
+    """
+    사업추진결과보고서(final Deliverable) 파싱한 정형화 데이터.
+
+    - 파싱 시점: 산출물 분석 화면에서 "분석 시작" 클릭
+    - parse_status 흐름: pending → processing → done | failed
+    - ExecutionPlanParsedData(PEP)와 완전히 같은 역할을 RPT 문서에 대해 수행한다.
+    """
+
+    deliverable = models.OneToOneField(
+        'Deliverable',
+        on_delete=models.CASCADE,
+        related_name='final_parsed_data',
+    )
+    # RPT 코드 체계(RPT-01-01 ~ RPT-03-02) 기반 정형화 JSON
+    parsed_json = models.JSONField(default=dict, blank=True)
+
+    # 소제목 매핑 QA 검수 리포트 (LLM/qa_agent.review_section_mapping 결과)
+    qa_report = models.JSONField('QA 검수 리포트', default=dict, blank=True)
+
+    parse_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending',    '대기'),
+            ('processing', '처리중'),
+            ('done',       '완료'),
+            ('failed',     '실패'),
+        ],
+        default='pending',
+    )
+    parsed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = '사업추진결과보고서 파싱 결과'
+        verbose_name_plural = '사업추진결과보고서 파싱 결과 목록'
+
+    def __str__(self):
+        return f'RPT 파싱 — {self.deliverable} [{self.parse_status}]'
+
+
+class PEPFinalComparisonResult(models.Model):
+    """
+    사업수행계획서(PEP, 계획) ↔ 사업추진결과보고서(RPT, 실적) 구조적 비교 분석 결과.
+
+    RFP 대비 이행 여부는 이미 RFPComparisonResult(PEP ↔ RFP)에서 확인하므로,
+    여기서는 "계획한 대로 실제로 이행됐는지"를 PEP 대비로 비교한다.
+
+    - 비교 시점: QA 검수(1단계) 완료 후 "그대로 진행" 클릭
+    - 새 비교를 실행할 때마다 이전 결과는 삭제하고 최신 1건만 유지
+    """
+
+    performance = models.ForeignKey(
+        'Performance',
+        on_delete=models.CASCADE,
+        related_name='pep_final_comparisons',
+    )
+    execution_plan_parsed = models.ForeignKey(
+        ExecutionPlanParsedData,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='+',
+    )
+    final_report_parsed = models.ForeignKey(
+        FinalReportParsedData,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='+',
+    )
+    # 비교 분석 JSON (RFPComparisonResult.comparison_json과 같은 형식)
+    comparison_json = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '사업수행계획서 ↔ 결과보고서 비교 결과'
+        verbose_name_plural = '사업수행계획서 ↔ 결과보고서 비교 결과 목록'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'PEP-결과보고서 비교 — {self.performance} ({self.created_at:%Y-%m-%d})'
+
+
+class AIAnalysisLog(models.Model):
+    """
+    산출물 AI 분석(1단계 QA 검수·2단계 비교) 과정에서 발생하는 이벤트를 DB에 남긴다.
+
+    - 파싱/QA 완료 시: 이슈 유무(analysis_ok / analysis_issue)
+    - "비교분석 진행" 클릭 시: 이슈가 있었는데도 반려 없이 진행했는지 여부
+      (proceed_no_issue / proceed_with_issue)
+    - "반려(다시 업로드)" 클릭 시: reject
+
+    콘솔 로그(logging)는 서버 재시작 시 사라지므로, 나중에 "어떤 산출물이 몇 번
+    반려됐는지" 등을 조회·집계할 수 있도록 별도 테이블로 남긴다.
+    """
+
+    EVENT_CHOICES = [
+        ('analysis_ok', '분석 완료 - 이슈 없음'),
+        ('analysis_issue', '분석 완료 - 이슈 발견'),
+        ('proceed_no_issue', '이슈 없이 다음 단계 진행'),
+        ('proceed_with_issue', '이슈 있었지만 반려 없이 진행'),
+        ('reject', '반려 (다시 업로드)'),
+    ]
+
+    deliverable = models.ForeignKey(
+        'Deliverable', on_delete=models.CASCADE, related_name='ai_analysis_logs',
+    )
+    event_type = models.CharField('이벤트 유형', max_length=30, choices=EVENT_CHOICES)
+    issue_count = models.IntegerField('이슈 건수', default=0)
+    # 이슈 유형 목록(issue_type들), review_status 등 부가 정보
+    detail = models.JSONField('상세', default=dict, blank=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField('발생 시각', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'AI 분석 로그'
+        verbose_name_plural = 'AI 분석 로그 목록'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'[{self.get_event_type_display()}] {self.deliverable} ({self.created_at:%Y-%m-%d %H:%M})'
+
+    @classmethod
+    def log(cls, deliverable, event_type, issue_count=0, detail=None, user=None):
+        """어디서 호출하든(celery task는 user 없이, view는 request.user와 함께) 같은 형태로 기록한다."""
+        return cls.objects.create(
+            deliverable=deliverable,
+            event_type=event_type,
+            issue_count=issue_count,
+            detail=detail or {},
+            user=user,
+        )
