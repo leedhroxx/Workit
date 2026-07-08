@@ -822,20 +822,35 @@ class SectionMappingReviewAgent:
             found_idx = -1
             found_text = ""
 
-            for candidate in spec.title_candidates():
-                candidate_norm = normalize_compare_text(candidate)
-                if not candidate_norm:
-                    continue
+            # match_hints가 있는 스펙(예: 박스 기호가 붙은 소제목)은 오탐 가능성이
+            # 낮으므로, 코드 번호 순서와 실제 문서상 등장 순서가 다른 문서(예:
+            # "04-04-02"가 "04-04-01"보다 먼저 나오는 경우)에도 커서에 막히지 않고
+            # start_from 이후 전체에서 가장 이른 위치를 그대로 인정한다.
+            if spec.match_hints:
+                for candidate in spec.match_hints:
+                    candidate_norm = normalize_compare_text(candidate)
+                    if not candidate_norm:
+                        continue
+                    idx = original_norm.find(candidate_norm, start_from)
+                    if idx >= 0 and (found_idx == -1 or idx < found_idx):
+                        found_idx = idx
+                        found_text = candidate
 
-                idx = original_norm.find(candidate_norm, cursor)
-                if idx >= 0:
-                    found_idx = idx
-                    found_text = candidate
-                    break
+            if found_idx == -1:
+                for candidate in [spec.title] + list(spec.aliases):
+                    candidate_norm = normalize_compare_text(candidate)
+                    if not candidate_norm:
+                        continue
+
+                    idx = original_norm.find(candidate_norm, cursor)
+                    if idx >= 0:
+                        found_idx = idx
+                        found_text = candidate
+                        break
 
             if found_idx >= 0:
                 positions[spec.code] = (found_idx, found_text)
-                cursor = found_idx + len(normalize_compare_text(found_text))
+                cursor = max(cursor, found_idx + len(normalize_compare_text(found_text)))
 
         return positions
 

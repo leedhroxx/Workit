@@ -102,6 +102,10 @@ class RFPParsedData(models.Model):
     # 노션 RFP 코드 체계(RFP-01-01 ~ RFP-04-04-11) 기반 정형화 JSON
     parsed_json = models.JSONField(default=dict, blank=True)
 
+    # 소제목 매핑 QA 검수 리포트 (LLM/qa_agent.review_section_mapping 결과)
+    # — 사업수행계획서 AI 분석 화면의 "2단계 · RFP 매핑" 탭에서 사용
+    qa_report = models.JSONField('QA 검수 리포트', default=dict, blank=True)
+
     parse_status = models.CharField(
         max_length=20,
         choices=[

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-jihye_inference.py — 계약서 조항 판정 추론 (Qwen3-8B + QLoRA 어댑터)
-- 베이스: Qwen/Qwen3-8B  +  학습한 LoRA 어댑터(epoch1 best) = workit_output_v1
+jihye_inference.py — 계약서 조항 판정 추론 (kanana-1.5-8b-instruct + QLoRA 어댑터)
+- 베이스: kakaocorp/kanana-1.5-8b-instruct-2505  +  학습한 LoRA 어댑터 = workit_output
 - 프롬프트: 학습과 동일 포맷 (train-inference parity)
 - 입력: RAG 출력 JSON (clause_text + law_refs[law_name/article_number/chunk_text])
 - 출력: 판정/방향/유형/근거/코멘트 (파싱 + 원문)
@@ -11,10 +11,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 
 # ── 경로 설정 ──
-BASE_MODEL_ID = "Qwen/Qwen3-8B"
+BASE_MODEL_ID = "kakaocorp/kanana-1.5-8b-instruct-2505"
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ↓↓ 다운로드한 best 어댑터 폴더(adapter_config.json 들어있는 곳)로 수정 ↓↓
-ADAPTER_PATH = os.path.join(BASE_DIR, "models", "workit_output_v1")
+ADAPTER_PATH = os.path.join(BASE_DIR, "models", "workit_output")
 
 # LOAD_IN_4BIT = True       # GPU 작으면 True(4bit), 여유 있으면 False(bf16)
 LOAD_IN_4BIT = False     # 4bit 끄면 bitsandbytes 불필요 → bf16 로드

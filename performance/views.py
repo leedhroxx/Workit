@@ -195,6 +195,36 @@ def performance_detail_api(request, pk):
     })
 
 
+def _reset_kickoff_analysis(d, perf):
+    """
+    사업수행계획서(kickoff)의 1단계 QA 검수·2단계 비교 결과를 모두 폐기해
+    분석 화면이 "분석 시작" 초기 상태부터 다시 노출되게 한다.
+    새 파일 업로드 시(deliverable_upload)와 반려(deliverable_reject_qa) 시
+    둘 다 "지금 붙어있는 분석 결과는 더 이상 유효하지 않다"는 같은 상황이라
+    같은 로직을 공유한다. RFP 자체의 QA(2단계)는 이 산출물이 아니라 계약
+    문서 소속이라 건드리지 않는다.
+    """
+    from .models import ExecutionPlanParsedData, RFPComparisonResult, PEPFinalComparisonResult
+    ExecutionPlanParsedData.objects.filter(deliverable=d).update(
+        parsed_json={}, qa_report={}, parse_status='pending',
+        parsed_at=None, error_message='',
+    )
+    RFPComparisonResult.objects.filter(performance=perf).delete()
+    # 사업추진결과보고서(final)의 2단계 비교(PEP ↔ RPT)도 이 사업수행계획서를
+    # 근거로 만든 것이라 함께 폐기한다.
+    PEPFinalComparisonResult.objects.filter(performance=perf).delete()
+
+
+def _reset_final_analysis(d, perf):
+    """사업추진결과보고서(final)판 _reset_kickoff_analysis. 같은 이유로 같은 방식."""
+    from .models import FinalReportParsedData, PEPFinalComparisonResult
+    FinalReportParsedData.objects.filter(deliverable=d).update(
+        parsed_json={}, qa_report={}, parse_status='pending',
+        parsed_at=None, error_message='',
+    )
+    PEPFinalComparisonResult.objects.filter(performance=perf).delete()
+
+
 @login_required
 @require_POST
 def deliverable_upload(request, perf_id):
@@ -226,16 +256,7 @@ def deliverable_upload(request, perf_id):
     # QA 검수 결과·RFP 비교 결과는 더 이상 유효하지 않으므로 폐기한다.
     # (재분석 전까지는 deliverable_analyze 화면에서 "분석 시작" 단계부터 다시 노출됨)
     if d_type == 'kickoff' and f:
-        from .models import ExecutionPlanParsedData, RFPComparisonResult, PEPFinalComparisonResult
-        ExecutionPlanParsedData.objects.filter(deliverable=d).update(
-            parsed_json={}, qa_report={}, parse_status='pending',
-            parsed_at=None, error_message='',
-        )
-        RFPComparisonResult.objects.filter(performance=perf).delete()
-        # 사업추진결과보고서(final)의 2단계 비교(PEP ↔ RPT)도 이 사업수행계획서를
-        # 근거로 만든 것이라 함께 폐기한다 — 안 지우면 final 분석 화면에 예전
-        # 사업수행계획서 기준으로 만들어진 낡은 비교 결과가 그대로 남아있게 된다.
-        PEPFinalComparisonResult.objects.filter(performance=perf).delete()
+        _reset_kickoff_analysis(d, perf)
 
         # 그 안의 산출물계획 표를 파싱해 기술적용결과표/사업추진결과보고서
         # 마감일을 비동기로 자동 반영
@@ -347,6 +368,24 @@ def deliverable_analyze(request, del_id):
         if comparison:
             comparison_data = comparison.comparison_json
 
+    # 사업수행계획서(kickoff) 전용 "2단계 · RFP 매핑" — RFP는 계약관리→이행관리 이관
+    # 시점에 이미 자동으로 파싱·QA가 끝나 있는 경우가 대부분이라, 그 결과를 그대로
+    # 복원한다. 아직 안 끝났으면(또는 예전 계약이라 qa_report가 비어 있으면)
+    # 프론트에서 "RFP AI 분석 시작" 버튼을 눌러 새로 실행할 수 있다.
+    rfp_qa_data = None
+    rfp_doc_id = None
+    if is_kickoff:
+        rfp_doc = d.performance.contract.documents.filter(doc_type='rfp').first()
+        if rfp_doc:
+            rfp_doc_id = rfp_doc.id
+        rfp_parsed = getattr(rfp_doc, 'rfp_parsed', None) if rfp_doc else None
+        if rfp_parsed and rfp_parsed.parse_status in ('done', 'failed') and rfp_parsed.qa_report:
+            rfp_qa_data = {
+                'parse_status': rfp_parsed.parse_status,
+                'qa_report': rfp_parsed.qa_report,
+                'error_message': rfp_parsed.error_message,
+            }
+
     # 기술적용결과표: 이미 실행된 체크 검증 결과가 있으면 새로고침해도 그대로 복원
     # (파일이 재업로드되면 deliverable_upload에서 이 레코드를 지우므로 여기서 못 찾음)
     tech_apply_data = None
@@ -367,7 +406,10 @@ def deliverable_analyze(request, del_id):
         'is_kickoff': is_kickoff,
         'is_final': is_final,
         'has_qa_flow': is_kickoff or is_final,
+        'has_rfp_qa_step': is_kickoff,
+        'rfp_doc_id': rfp_doc_id,
         'qa_data': qa_data,
+        'rfp_qa_data': rfp_qa_data,
         'comparison_data': comparison_data,
         'tech_apply_data': tech_apply_data,
     })
@@ -411,6 +453,49 @@ def deliverable_parse_qa(request, del_id):
         'status': 'ok',
         'parse_status': parsed.parse_status,
         'qa_report': parsed.qa_report,
+    })
+
+
+@login_required
+@require_POST
+def deliverable_parse_rfp_qa(request, del_id):
+    """
+    사업수행계획서(kickoff) AI 분석 화면의 "2단계 · RFP 매핑" — 이 계약의 RFP
+    문서를 다시 파싱하고 LLM/qa_agent로 '원본 ↔ 파싱 결과'의 소제목 매핑을
+    검수한다. RFP는 보통 계약관리→이행관리 이관 시점에 이미 자동으로 한 번
+    파싱되지만, 여기서 다시 실행해도 결과는 동일하다(멱등).
+
+    호출 시점: 이 화면의 2단계 탭에서 "RFP AI 분석 시작" 버튼 클릭.
+    """
+    d = get_object_or_404(
+        Deliverable, pk=del_id,
+        performance__contract__created_by=request.user,
+    )
+    if d.deliverable_type != 'kickoff':
+        return JsonResponse({'status': 'error', 'message': '사업수행계획서에서만 지원합니다.'}, status=400)
+
+    rfp_doc = d.performance.contract.documents.filter(doc_type='rfp').first()
+    if not rfp_doc:
+        return JsonResponse({'status': 'error', 'message': 'RFP 문서가 없습니다.'}, status=400)
+    if not rfp_doc.file:
+        return JsonResponse({'status': 'error', 'message': 'RFP 파일이 없습니다.'}, status=400)
+
+    from contracts.tasks import parse_rfp_task
+    result = parse_rfp_task.apply(args=(rfp_doc.id,)).get()
+    if result.get('status') != 'ok':
+        return JsonResponse(result, status=400)
+
+    rfp_parsed = rfp_doc.rfp_parsed
+    if rfp_parsed.parse_status == 'failed':
+        return JsonResponse({
+            'status': 'error',
+            'message': rfp_parsed.error_message or 'RFP 분석 중 오류가 발생했습니다.',
+        }, status=400)
+
+    return JsonResponse({
+        'status': 'ok',
+        'parse_status': rfp_parsed.parse_status,
+        'qa_report': rfp_parsed.qa_report,
     })
 
 

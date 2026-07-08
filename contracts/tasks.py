@@ -1,8 +1,46 @@
 import os
+import re
 import sys
 from celery import shared_task
 
 MAX_CLAUSES = 3  # 시연용 조항 수 제한 (CPU 환경)
+
+
+def _chunk_contract(text: str) -> list[dict]:
+    """
+    계약서 텍스트를 '제N조(...)' 단위 조항으로 분할한다.
+    새 yoonha_law_rag.search_jo()는 조항 하나(query_text)씩 검색하는
+    순수 검색 함수라, 계약서 전체를 조항 단위로 쪼개는 건 호출하는
+    쪽(여기)의 책임이다. (rag/pdfver_yoonha_contract_rag.py의 예전
+    chunk_contract()와 동일 로직 — 그 모듈은 없는 패키지에 의존해서 못 씀)
+    """
+    text = text.strip()
+    pattern = r"(제\d+조(?:의\d+)?(?:\s*\([^)]*\))?)"
+    parts = re.split(pattern, text)
+
+    clauses = []
+    i = 1
+    while i < len(parts) - 1:
+        raw_header = parts[i].strip()
+        body = parts[i + 1].strip()
+
+        match = re.match(r"(제\d+조(?:의\d+)?)", raw_header)
+        clause_number = match.group(1) if match else raw_header
+        clause_text = f"{raw_header} {body}".strip()
+
+        if body:
+            clauses.append({'clause_number': clause_number, 'clause_text': clause_text})
+
+        i += 2
+
+    if not clauses:
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+        clauses = [
+            {'clause_number': f'단락{idx + 1}', 'clause_text': paragraph}
+            for idx, paragraph in enumerate(paragraphs)
+        ]
+
+    return clauses
 
 
 @shared_task(bind=True)
@@ -56,38 +94,52 @@ def analyze_document_task(self, doc_id):
             clause_positions = {}
 
         from qdrant_client import QdrantClient
-        from yoonha_law_rag import (
-            load_embed_model,
-            load_laws_ref,
-            review_contract_jo as review_contract,
-            results_to_json,
-        )
+        from yoonha_law_rag import load_embed_model, load_reranker, search_jo
 
         embed_model = load_embed_model()
+        reranker = load_reranker()
         qdrant_client = QdrantClient(url="http://localhost:6333")
-        laws_ref = load_laws_ref()
 
-        clause_results = review_contract(
-            contract_text=file_text,
-            client=qdrant_client,
-            model=embed_model,
-            laws_ref=laws_ref,
-        )
-        rag_results = results_to_json(clause_results)
+        clauses = _chunk_contract(file_text)
+
+        rag_results = []
+        for clause in clauses:
+            law_refs = search_jo(
+                clause['clause_text'],
+                qdrant_client,
+                embed_model,
+                reranker=reranker,
+            )
+            rag_results.append({
+                'clause_number': clause['clause_number'],
+                'clause_text': clause['clause_text'],
+                'law_refs': [
+                    {
+                        'law_name': ref.law_name,
+                        'article_number': ref.article_id,
+                        'chunk_text': ref.text,
+                        'source_full': f'{ref.law_name} {ref.article_id}'.strip(),
+                        'score': ref.score,
+                    }
+                    for ref in law_refs
+                ],
+                # 새 search_jo()는 리스크 카테고리 태깅을 제공하지 않는다 —
+                # jihye_inference.build_user_content()는 비어있으면 "기타"로 처리한다.
+                'risk_names': [],
+            })
 
         del embed_model
+        del reranker
         del qdrant_client
         import gc
         gc.collect()
 
-        import re as _re
-
         def _fallback_keys(num: str) -> list[str]:
             keys = [num]
-            m_hang = _re.match(r"(제\d+조(?:의\d+)?제\d+항)", num or "")
+            m_hang = re.match(r"(제\d+조(?:의\d+)?제\d+항)", num or "")
             if m_hang and m_hang.group(1) != num:
                 keys.append(m_hang.group(1))
-            m_jo = _re.match(r"(제\d+조(?:의\d+)?)", num or "")
+            m_jo = re.match(r"(제\d+조(?:의\d+)?)", num or "")
             if m_jo and m_jo.group(1) not in keys:
                 keys.append(m_jo.group(1))
             return keys
@@ -123,16 +175,11 @@ def analyze_document_task(self, doc_id):
 
         inference_results = []
         for item in filtered:
-            prediction = predict(
-                clause_text=item['clause_text'],
-                law_refs=item['law_refs'],
-                model=llm_model,
-                tokenizer=tokenizer,
-            )
+            prediction = predict(item, llm_model, tokenizer)
             inference_results.append({
                 'clause_number': item['clause_number'],
                 'clause_text': item['clause_text'],
-                'risk_names': item.get('categories', []),
+                'risk_names': item.get('risk_names', []),
                 'page': item.get('page'),
                 'bbox': item.get('bbox'),
                 'fragments': item.get('fragments'),
@@ -190,7 +237,12 @@ def parse_rfp_task(self, rfp_doc_id: int):
     from django.utils import timezone
     from contracts.models import ContractDocument, RFPParsedData
     from contracts.utils import extract_text
-    from contracts.parsers import parse_rfp  # ← 규칙 기반 파서
+    from contracts.parsers import parse_rfp, to_qa_agent_records  # ← 규칙 기반 파서
+
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    llm_dir = os.path.join(BASE_DIR, 'LLM')
+    if llm_dir not in sys.path:
+        sys.path.insert(0, llm_dir)
 
     rfp_doc = ContractDocument.objects.select_related('contract').get(pk=rfp_doc_id)
 
@@ -209,13 +261,41 @@ def parse_rfp_task(self, rfp_doc_id: int):
         found_count = sum(1 for s in result_json.get('sections', {}).values() if s.get('found'))
         total_count = len(result_json.get('sections', {}))
 
+        # 소제목 매핑 QA 검수 (LLM/qa_agent). 검수 자체가 실패해도 파싱 성공은
+        # 그대로 살려야 하므로 별도 try/except로 감싸고, 실패 시 리포트만 비워둔다.
+        # (사업수행계획서 AI 분석 화면의 "2단계 · RFP 매핑" 탭에서 사용)
+        qa_report = {}
+        try:
+            from qa_agent.engine import review_section_mapping
+
+            qa_report = review_section_mapping(
+                original_text=text,
+                parsed_sections=to_qa_agent_records(result_json),
+                document_type='rfp',
+            )
+        except Exception:
+            import traceback
+            print(f'[parse_rfp_task] QA 검수 실패 — doc_id={rfp_doc_id}\n{traceback.format_exc()}')
+
+        qa_issues = qa_report.get('issues', [])
+        if qa_issues:
+            print(
+                f'[QA] RFP(doc_id={rfp_doc_id}) 1단계 QA 이슈 {len(qa_issues)}건 발견 '
+                f'(review_status={qa_report.get("review_status")}): '
+                f'{[issue.get("issue_type") for issue in qa_issues]}'
+            )
+        else:
+            print(f'[QA] RFP(doc_id={rfp_doc_id}) 1단계 QA 이슈 없음 (review_status={qa_report.get("review_status")})')
+
         parsed.parsed_json = result_json
+        parsed.qa_report = qa_report
         parsed.parse_status = 'done'
         parsed.parsed_at = timezone.now()
-        parsed.save(update_fields=['parsed_json', 'parse_status', 'parsed_at'])
+        parsed.save(update_fields=['parsed_json', 'qa_report', 'parse_status', 'parsed_at'])
 
         print(f'[parse_rfp_task] 완료 — doc_id={rfp_doc_id}, 섹션 {found_count}/{total_count} 발견')
-        return {'status': 'ok', 'doc_id': rfp_doc_id, 'found': found_count, 'total': total_count}
+        return {'status': 'ok', 'doc_id': rfp_doc_id, 'found': found_count, 'total': total_count,
+                'qa_status': qa_report.get('review_status')}
 
     except Exception as exc:
         import traceback

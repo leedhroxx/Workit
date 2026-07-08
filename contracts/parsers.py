@@ -331,3 +331,27 @@ def parse_rfp(text: str) -> dict:
         'meta': _extract_meta(text),
         'sections': sections,
     }
+
+
+def to_qa_agent_records(parsed: dict) -> list[dict]:
+    """
+    parse_rfp()의 출력({"meta":..., "sections": {code: {subtitle, content, found}}})을
+    LLM/qa_agent.engine.review_section_mapping()이 받는 레코드 리스트
+    ([{"section_id": ..., "section_title": ..., "content": ...}, ...])로 변환한다.
+
+    performance/parsers.py의 to_qa_agent_records()와 같은 역할이지만, parse_rfp()는
+    'sections' 안에 담겨 있고 라벨 키가 'label'이 아니라 'subtitle'이라 별도로 둔다.
+
+    found=False(본문에서 못 찾은) 섹션은 넣지 않는다 — 넣으면 content가 빈 문자열이라
+    qa_agent가 missing_section 대신 empty_section으로 판정해버린다.
+    """
+    records = []
+    for code, info in parsed.get('sections', {}).items():
+        if not info.get('found'):
+            continue
+        records.append({
+            'section_id': code.lower().replace('-', '_'),
+            'section_title': info.get('subtitle', ''),
+            'content': info.get('content', ''),
+        })
+    return records

@@ -4,6 +4,7 @@
 {% block content %}
 <style>
 /* 품질 평가표 */
+.qa-tab-title { font-size:14px; font-weight:700; color:#333; margin-bottom:10px; }
 .qa-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
 .qa-summary.qa-summary-2col { grid-template-columns:repeat(2,1fr); }
 .qa-stat { background:#fff; border:1px solid #eee; border-radius:8px; padding:10px 8px; text-align:center; }
@@ -43,6 +44,12 @@
 .btn-reject:hover { background:#fee2e2; }
 .qa-action-btn { flex:1; height:52px; display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.3; }
 
+/* 좌측 문서 뷰어: 사업수행계획서 ↔ 제안요청서(RFP) 전환 */
+.doc-source-toggle { margin-left:auto; display:flex; gap:4px; flex-shrink:0; }
+.doc-source-btn { background:#f4f5fb; border:1px solid #e5e7eb; color:#666; font-size:12px; font-weight:600; padding:6px 12px; border-radius:6px; cursor:pointer; white-space:nowrap; }
+.doc-source-btn.active { background:#4f46e5; border-color:#4f46e5; color:#fff; }
+.doc-source-btn:hover:not(.active) { background:#eceeff; }
+
 .tech-apply-highlight {
   position:absolute; border:2px solid #dc2626; background:rgba(220,38,38,.18);
   border-radius:3px; pointer-events:none; animation:techApplyPulse 1.4s ease-out 2;
@@ -65,6 +72,12 @@
         <span class="doc-filename">{{ deliverable.filename }}</span>
         <span class="doc-breadcrumb">{{ contract.project_name }} · {{ deliverable.get_deliverable_type_display }}</span>
       </div>
+      {% if has_rfp_qa_step and rfp_doc_id %}
+        <div class="doc-source-toggle" id="docSourceToggle">
+          <button type="button" class="doc-source-btn active" data-source="kickoff" onclick="switchDocSource('kickoff')">사업수행계획서</button>
+          <button type="button" class="doc-source-btn" data-source="rfp" onclick="switchDocSource('rfp')">제안요청서</button>
+        </div>
+      {% endif %}
     </div>
 
     <div class="doc-viewer-body" id="docViewerBody" style="overflow-y:auto; padding:24px; gap:16px; display:flex; flex-direction:column; background:#F8F9FA;">
@@ -87,7 +100,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
           <span id="reviewCountText">보완 0 건</span>
         </div>
-        <span style="margin-left:auto; font-size:11px; color:#999; white-space:nowrap;">평가기준: {% if deliverable.deliverable_type == 'tech_apply' %}기술적용결과표 체크 정합성{% elif is_final %}소제목 매핑 QA · 사업수행계획서 대응 비교{% elif has_qa_flow %}소제목 매핑 QA · RFP 대응 비교{% endif %}</span>
+        <span style="margin-left:auto; font-size:11px; color:#999; white-space:nowrap;">평가기준: {% if deliverable.deliverable_type == 'tech_apply' %}기술적용결과표 체크 정합성{% elif is_final %}소제목 매핑 QA · 사업수행계획서 대응 비교{% elif is_kickoff %}사업수행계획서 매핑 · RFP 매핑 · 대응 비교{% elif has_qa_flow %}소제목 매핑 QA · RFP 대응 비교{% endif %}</span>
       </div>
     </div>
 
@@ -155,20 +168,29 @@
 
 {% block extra_js %}
 {{ qa_data|json_script:"qa-data" }}
+{{ rfp_qa_data|json_script:"rfp-qa-data" }}
 {{ comparison_data|json_script:"comparison-data" }}
 {{ tech_apply_data|json_script:"tech-apply-data" }}
 <script>
 const DEL_ID = {{ deliverable.id }};
 const HAS_QA_FLOW = {{ has_qa_flow|yesno:"true,false" }};
 const IS_FINAL = {{ is_final|yesno:"true,false" }};
+const HAS_RFP_QA_STEP = {{ has_rfp_qa_step|yesno:"true,false" }};  // kickoff 전용 "2단계 · 제안요청서 매핑" 탭
+const RFP_DOC_ID = {{ rfp_doc_id|default_if_none:"null" }};  // 좌측 뷰어에서 제안요청서로 전환할 때 사용
 const DOC_LABEL = "{{ deliverable.get_deliverable_type_display|escapejs }}";
 const COMPARE_TARGET_LABEL = IS_FINAL ? '사업수행계획서' : '제안요청서';
+const COMPARE_TAB_INDEX = HAS_RFP_QA_STEP ? 3 : 2;  // "대응 비교" 탭이 몇 번째인지
 const QA_DATA = JSON.parse(document.getElementById('qa-data').textContent);
+const RFP_QA_DATA = JSON.parse(document.getElementById('rfp-qa-data').textContent);
 let COMPARISON_DATA = JSON.parse(document.getElementById('comparison-data').textContent);
 const TECH_APPLY_DATA = JSON.parse(document.getElementById('tech-apply-data').textContent);
 let ANALYSIS = null;
 
-// ── 1단계: 소제목 매핑 QA 검수 (원본 ↔ 파싱 결과) ──────────────────────────
+// ── 소제목-내용 매핑 QA 검수 (원본 ↔ 파싱 결과) ─────────────────────────────
+// kickoff는 1단계(사업수행계획서 자체)·2단계(RFP 자체) 둘 다 같은 방식으로
+// qa_agent가 검수하고, 3단계에서 둘의 내용을 구조적으로 비교한다.
+// final은 1단계(사업추진결과보고서 자체) 검수 후 2단계에서 바로 사업수행계획서와
+// 비교한다(HAS_RFP_QA_STEP=false라 중간 탭이 없음).
 
 const ISSUE_TYPE_LABEL = {
   missing_section: '소제목 누락',
@@ -183,23 +205,24 @@ const ISSUE_TYPE_LABEL = {
   section_title_content_mismatch: '소제목·내용 오류',
 };
 
-function qaIntroHtml() {
+function qaIntroHtml(docLabel, btnId, onclickFn) {
   return `
     <div class="ai-intro" id="qaIntro">
       <div class="ai-intro-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       </div>
-      <h3>${DOC_LABEL} 분석</h3>
-      <p>원본 문서와 규칙 기반 파싱 결과를 대조해<br>소제목 매핑이 정확한지, 누락된 항목은 없는지<br>먼저 검수합니다.</p>
-      <button class="btn btn-primary" id="btnParseQa" onclick="runQaAnalysis()">
+      <h3>${docLabel} 분석</h3>
+      <p>원본 문서와 규칙 기반 파싱 결과를 대조해<br>소제목 매핑이 정확한지, 누락된 항목은 없는지<br>검수합니다.</p>
+      <button class="btn btn-primary" id="${btnId}" onclick="${onclickFn}()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        ${DOC_LABEL} AI 분석 시작
+        ${docLabel} AI 분석 시작
       </button>
     </div>`;
 }
 
 let CURRENT_QA_REPORT = (QA_DATA && QA_DATA.qa_report) || null;
-let ACTIVE_QA_TAB = COMPARISON_DATA ? 2 : 1;
+let RFP_QA_REPORT = (RFP_QA_DATA && RFP_QA_DATA.qa_report) || null;
+let ACTIVE_QA_TAB = COMPARISON_DATA ? COMPARE_TAB_INDEX : 1;
 let COMPARE_LOADING = false;
 
 function initQaStep() {
@@ -209,7 +232,7 @@ function initQaStep() {
   if (CURRENT_QA_REPORT) {
     renderQaStep();
   } else {
-    step.innerHTML = qaIntroHtml();
+    step.innerHTML = qaIntroHtml(DOC_LABEL, 'btnParseQa', 'runQaAnalysis');
   }
 }
 
@@ -241,27 +264,61 @@ function runQaAnalysis() {
   });
 }
 
+function runRfpQaAnalysis() {
+  const btn = document.getElementById('btnParseRfpQa');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 분석 중...';
+  }
+  fetch(`/performance/deliverable/${DEL_ID}/parse-rfp-qa/`, {
+    method: 'POST',
+    headers: {'X-CSRFToken': getCsrf()},
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      RFP_QA_REPORT = data.qa_report;
+      renderQaStep();
+    } else {
+      alert(data.message || 'RFP 분석 중 오류가 발생했습니다.');
+      if (btn) { btn.disabled = false; btn.innerHTML = '제안요청서 AI 분석 시작'; }
+    }
+  })
+  .catch(() => {
+    alert('RFP 분석 요청에 실패했습니다.');
+    if (btn) { btn.disabled = false; btn.innerHTML = '제안요청서 AI 분석 시작'; }
+  });
+}
+
 function switchQaTab(n) {
-  if (n === 2 && !COMPARISON_DATA && !COMPARE_LOADING) return;  // 아직 비교 실행 전에는 못 들어감
+  if (n === COMPARE_TAB_INDEX && !COMPARISON_DATA && !COMPARE_LOADING) return;  // 아직 비교 실행 전에는 못 들어감
   ACTIVE_QA_TAB = n;
   renderQaStep();
 }
 
-// CURRENT_QA_REPORT / COMPARISON_DATA / ACTIVE_QA_TAB 상태를 그대로 다시 그린다
-// (문자열 짜깁기 없이 항상 처음부터 재구성).
+// CURRENT_QA_REPORT / RFP_QA_REPORT / COMPARISON_DATA / ACTIVE_QA_TAB 상태를
+// 그대로 다시 그린다 (문자열 짜깁기 없이 항상 처음부터 재구성).
 function renderQaStep() {
   const step = document.getElementById('qaStep');
   if (!step || !CURRENT_QA_REPORT) return;
 
   const hasComparison = !!COMPARISON_DATA;
 
+  // 탭 버튼에는 "N단계"만 쓰고, 각 단계의 제목은 탭 내용 맨 위에 표시한다
+  // (renderQaTab1Html / renderRfpQaTabHtml / renderComparisonHtml 참고).
   let html = `<div class="qa-tabs">
-    <button class="qa-tab-btn ${ACTIVE_QA_TAB === 1 ? 'active' : ''}" onclick="switchQaTab(1)">1단계 · 소제목 매핑 QA</button>
-    <button class="qa-tab-btn ${ACTIVE_QA_TAB === 2 ? 'active' : ''}" onclick="switchQaTab(2)" ${hasComparison ? '' : 'disabled'}>2단계 · ${COMPARE_TARGET_LABEL} 비교</button>
-  </div>`;
+    <button class="qa-tab-btn ${ACTIVE_QA_TAB === 1 ? 'active' : ''}" onclick="switchQaTab(1)">1단계</button>`;
+  if (HAS_RFP_QA_STEP) {
+    html += `<button class="qa-tab-btn ${ACTIVE_QA_TAB === 2 ? 'active' : ''}" onclick="switchQaTab(2)">2단계</button>`;
+  }
+  html += `<button class="qa-tab-btn ${ACTIVE_QA_TAB === COMPARE_TAB_INDEX ? 'active' : ''}" onclick="switchQaTab(${COMPARE_TAB_INDEX})" ${hasComparison ? '' : 'disabled'}>${COMPARE_TAB_INDEX}단계</button>`;
+  html += `</div>`;
 
-  html += `<div id="qaTabPanel1" style="${ACTIVE_QA_TAB === 1 ? '' : 'display:none;'}">${renderQaTab1Html()}</div>`;
-  html += `<div id="qaTabPanel2" style="${ACTIVE_QA_TAB === 2 ? '' : 'display:none;'}">${renderQaTab2Html()}</div>`;
+  html += `<div style="${ACTIVE_QA_TAB === 1 ? '' : 'display:none;'}">${renderQaTab1Html()}</div>`;
+  if (HAS_RFP_QA_STEP) {
+    html += `<div style="${ACTIVE_QA_TAB === 2 ? '' : 'display:none;'}">${renderRfpQaTabHtml()}</div>`;
+  }
+  html += `<div style="${ACTIVE_QA_TAB === COMPARE_TAB_INDEX ? '' : 'display:none;'}">${renderQaTab2Html()}</div>`;
 
   step.innerHTML = html;
 }
@@ -271,8 +328,10 @@ function renderQaTab1Html() {
   const statusClass = report.review_status === 'PASS' ? 'ok' : (report.review_status === 'WARN' ? 'warn' : 'bad');
   const issues = report.issues || [];
   const comments = report.comments || [];
+  const tab1Label = HAS_RFP_QA_STEP ? '사업수행계획서 매핑' : '소제목 매핑 QA';
 
-  let html = `<div class="qa-summary qa-summary-2col">
+  let html = `<div class="qa-tab-title">${tab1Label}</div>`;
+  html += `<div class="qa-summary qa-summary-2col">
     <div class="qa-stat ${statusClass}"><div class="num">${report.review_status}</div><div class="lbl">판정</div></div>
     <div class="qa-stat ${issues.length ? 'warn' : 'ok'}"><div class="num">${issues.length}</div><div class="lbl">확인 필요</div></div>
   </div>`;
@@ -303,23 +362,88 @@ function renderQaTab1Html() {
     html += `<p style="font-size:13px; color:#888; padding:10px 0;">발견된 이슈가 없습니다.</p>`;
   }
 
+  // 반려는 이 산출물(1단계) 자체에 이슈가 있으면 언제나 가능해야 한다 —
+  // 이미 다음 단계(2·3단계)까지 진행한 뒤에도 반려할 수 있어야 하므로,
+  // "다음 단계" 버튼과 달리 COMPARISON_DATA 유무에 상관없이 보여준다.
+  const hasRejectBtn = issues.length > 0;
+  const rejectBtn = hasRejectBtn
+    ? `<button class="btn btn-reject qa-action-btn" onclick="rejectQa()">반려<br>(다시 업로드)</button>`
+    : '';
+
   if (!COMPARISON_DATA) {
-    // 발견된 이슈가 없으면 반려할 이유도 없으므로 "비교분석 진행"만 보여준다.
-    // 버튼이 두 개(반려 + 진행) 나란히 있을 때만 텍스트 길이 차이(RFP/제안요청서 vs
-    // 사업수행계획서)로 높이가 달라지는 문제가 있어 줄바꿈+고정 높이로 맞춘다.
-    // 진행 버튼 혼자 있을 때는 맞출 대상이 없으므로 줄바꿈 없이 한 줄로 보여준다.
-    const hasRejectBtn = issues.length > 0;
-    const rejectBtn = hasRejectBtn
-      ? `<button class="btn btn-reject qa-action-btn" onclick="rejectQa()">반려<br>(다시 업로드)</button>`
-      : '';
-    const proceedLabel = hasRejectBtn
-      ? `${COMPARE_TARGET_LABEL}와<br>비교분석 진행`
-      : `${COMPARE_TARGET_LABEL}와 비교분석 진행`;
+    // 발견된 이슈가 없으면 반려할 이유도 없으므로 "다음 단계"만 보여준다.
+    // 버튼이 두 개(반려 + 진행) 나란히 있을 때만 텍스트 길이 차이로 높이가
+    // 달라지는 문제가 있어 줄바꿈+고정 높이로 맞춘다. 진행 버튼 혼자 있을 때는
+    // 맞출 대상이 없으므로 줄바꿈 없이 한 줄로 보여준다.
+    // kickoff는 다음 단계가 "2단계 · 제안요청서 매핑"이라 탭만 넘어가면 되고
+    // (별도 API 호출 없음), final은 바로 비교분석을 실행한다.
+    const nextOnclick = HAS_RFP_QA_STEP ? 'switchQaTab(2)' : 'proceedToCompare()';
+    const nextLabelOneLine = HAS_RFP_QA_STEP ? '제안요청서 매핑 확인하기' : `${COMPARE_TARGET_LABEL}와 비교분석 진행`;
+    const nextLabelTwoLine = HAS_RFP_QA_STEP ? '제안요청서<br>매핑 확인하기' : `${COMPARE_TARGET_LABEL}와<br>비교분석 진행`;
+    const proceedLabel = hasRejectBtn ? nextLabelTwoLine : nextLabelOneLine;
     const proceedBtnClass = hasRejectBtn ? 'btn btn-primary qa-action-btn' : 'btn btn-primary';
     html += `
       <div style="display:flex; gap:8px; margin-top:14px;">
         ${rejectBtn}
-        <button class="${proceedBtnClass}" style="${hasRejectBtn ? '' : 'flex:1; text-align:center;'}" onclick="proceedToCompare()">${proceedLabel}</button>
+        <button class="${proceedBtnClass}" style="${hasRejectBtn ? '' : 'flex:1; text-align:center;'}" onclick="${nextOnclick}">${proceedLabel}</button>
+      </div>`;
+  } else if (hasRejectBtn) {
+    // 이미 다음 단계까지 진행했더라도, 1단계 이슈가 있었다면 반려는 여전히 가능하다.
+    html += `
+      <div style="margin-top:14px;">
+        <button class="btn btn-reject" style="width:100%; text-align:center;" onclick="rejectQa()">반려 (다시 업로드)</button>
+      </div>`;
+  }
+
+  return html;
+}
+
+// kickoff 전용 "2단계 · 제안요청서 매핑" — 이 계약의 RFP 원본↔파싱 결과를
+// qa_agent로 검수한다. RFP는 이 산출물(사업수행계획서) 소속이 아니라 계약관리
+// 쪽 문서라서, 여기서는 반려(다시 업로드) 없이 이슈 확인 후 다음 단계로만 진행한다.
+function renderRfpQaTabHtml() {
+  if (!RFP_QA_REPORT) {
+    return qaIntroHtml('제안요청서', 'btnParseRfpQa', 'runRfpQaAnalysis');
+  }
+
+  const report = RFP_QA_REPORT;
+  const statusClass = report.review_status === 'PASS' ? 'ok' : (report.review_status === 'WARN' ? 'warn' : 'bad');
+  const issues = report.issues || [];
+  const comments = report.comments || [];
+
+  let html = `<div class="qa-tab-title">제안요청서 매핑</div>`;
+  html += `<div class="qa-summary qa-summary-2col">
+    <div class="qa-stat ${statusClass}"><div class="num">${report.review_status}</div><div class="lbl">판정</div></div>
+    <div class="qa-stat ${issues.length ? 'warn' : 'ok'}"><div class="num">${issues.length}</div><div class="lbl">확인 필요</div></div>
+  </div>`;
+
+  const issueByCode = {};
+  issues.forEach(issue => { if (issue.code && !(issue.code in issueByCode)) issueByCode[issue.code] = issue; });
+
+  const entries = comments.length ? comments : issues.map(issue => ({
+    code: issue.code, location: issue.location || issue.title, message: issue.message,
+  }));
+
+  if (entries.length) {
+    html += `<ul class="issue-list">`;
+    entries.forEach(entry => {
+      const relatedIssue = issueByCode[entry.code];
+      const severity = relatedIssue ? relatedIssue.severity : 'review';
+      const lv = severity === 'info' ? 'warn' : 'bad';
+      const ic = lv === 'bad' ? '✕' : '⚠';
+      const typeLabel = relatedIssue ? (ISSUE_TYPE_LABEL[relatedIssue.issue_type] || relatedIssue.issue_type) : '확인 필요';
+      const loc = entry.location ? `${escapeHtml(entry.location)}: ` : '';
+      html += `<li class="${lv}"><span class="ic">${ic}</span><span><strong>[${typeLabel}]</strong> ${loc}${escapeHtml(entry.message)}</span></li>`;
+    });
+    html += `</ul>`;
+  } else {
+    html += `<p style="font-size:13px; color:#888; padding:10px 0;">발견된 이슈가 없습니다.</p>`;
+  }
+
+  if (!COMPARISON_DATA) {
+    html += `
+      <div style="margin-top:14px;">
+        <button class="btn btn-primary" style="width:100%; text-align:center;" onclick="proceedToCompare()">대응 비교 진행</button>
       </div>`;
   }
 
@@ -333,7 +457,8 @@ function renderQaTab2Html() {
   if (COMPARISON_DATA) {
     return renderComparisonHtml(COMPARISON_DATA);
   }
-  return `<p style="font-size:13px; color:#888; padding:10px 0;">1단계에서 "${COMPARE_TARGET_LABEL}와 비교분석 진행"을 누르면 결과가 표시됩니다.</p>`;
+  const prevTab = HAS_RFP_QA_STEP ? 2 : 1;
+  return `<p style="font-size:13px; color:#888; padding:10px 0;">${prevTab}단계에서 "비교분석 진행"을 누르면 결과가 표시됩니다.</p>`;
 }
 
 function rejectQa() {
@@ -349,7 +474,7 @@ function rejectQa() {
 
 function proceedToCompare() {
   COMPARE_LOADING = true;
-  ACTIVE_QA_TAB = 2;
+  ACTIVE_QA_TAB = COMPARE_TAB_INDEX;
   renderQaStep();
 
   fetch(`/performance/deliverable/${DEL_ID}/compare-rfp/`, {
@@ -363,20 +488,22 @@ function proceedToCompare() {
       COMPARISON_DATA = data.comparison;
     } else {
       alert(data.message || `${COMPARE_TARGET_LABEL} 비교 중 오류가 발생했습니다.`);
-      ACTIVE_QA_TAB = 1;
+      ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
     }
     renderQaStep();
   })
   .catch(() => {
     COMPARE_LOADING = false;
     alert(`${COMPARE_TARGET_LABEL} 비교 요청에 실패했습니다.`);
-    ACTIVE_QA_TAB = 1;
+    ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
     renderQaStep();
   });
 }
 
 function renderComparisonHtml(cmp) {
-  let html = `<div style="font-size:13px; font-weight:700; color:#333; margin-bottom:10px;">종합 ${cmp.overall_score}점</div>`;
+  const compareTitle = HAS_RFP_QA_STEP ? '대응 비교' : `${COMPARE_TARGET_LABEL} 비교`;
+  let html = `<div class="qa-tab-title">${compareTitle}</div>`;
+  html += `<div style="font-size:13px; font-weight:700; color:#333; margin-bottom:10px;">종합 ${cmp.overall_score}점</div>`;
   html += `<div class="qa-summary">
     <div class="qa-stat ok"><div class="num">${cmp.satisfied_count}</div><div class="lbl">충족</div></div>
     <div class="qa-stat warn"><div class="num">${cmp.partial_count}</div><div class="lbl">검토</div></div>
@@ -406,13 +533,8 @@ function renderComparisonHtml(cmp) {
     html += `<p style="font-size:13px; color:#888; padding:10px 0;">${COMPARE_TARGET_LABEL} 대비 미흡한 항목이 발견되지 않았습니다.</p>`;
   }
 
-  // 검토/불가 항목이 있을 때만 반려(다시 업로드) 선택지를 보여준다.
-  if ((cmp.partial_count || 0) + (cmp.unsatisfied_count || 0) > 0) {
-    html += `
-      <div style="margin-top:14px;">
-        <button class="btn btn-reject" style="width:100%; text-align:center;" onclick="rejectQa()">반려 (다시 업로드)</button>
-      </div>`;
-  }
+  // 반려(다시 업로드)는 1단계(원본 산출물 자체의 소제목 매핑 QA)에서만 제공한다 —
+  // 여기(대응 비교 탭)는 별도 반려 버튼을 두지 않는다.
 
   return html;
 }
@@ -676,11 +798,14 @@ window.downloadReport = function() {
   .finally(() => { btn.disabled = false; btn.innerHTML = orig; });
 };
 
-// PDF 페이지 이미지 로드
-(function() {
+// PDF 페이지 이미지 로드 — 좌측 뷰어는 기본으로 이 산출물(사업수행계획서 등)의
+// PDF를 보여주고, kickoff 화면에서는 상단 토글로 계약의 제안요청서(RFP) PDF로
+// 바꿔 볼 수 있다(둘 다 같은 방식으로 pages/page 엔드포인트에서 이미지를 받아온다).
+function loadPdfPages(pagesUrl, pageUrl) {
   const container = document.getElementById('pdfPages');
   if (!container) return;
-  fetch(`/performance/deliverable/${DEL_ID}/pages/`)
+  container.innerHTML = '';
+  fetch(pagesUrl)
     .then(r => r.json())
     .then(data => {
       const total = data.pages || 1;
@@ -692,7 +817,7 @@ window.downloadReport = function() {
         pageNum.textContent = `- ${p} -`;
         pageNum.style.cssText = 'text-align:center; font-size:12px; color:#aaa; padding:8px 0;';
         const img = document.createElement('img');
-        img.src = `/performance/deliverable/${DEL_ID}/page/${p}/`;
+        img.src = pageUrl(p);
         img.style.cssText = 'width:100%; display:block;';
         img.alt = `페이지 ${p}`;
         wrap.appendChild(pageNum);
@@ -700,6 +825,32 @@ window.downloadReport = function() {
         container.appendChild(wrap);
       }
     });
-})();
+}
+
+let CURRENT_DOC_SOURCE = 'kickoff';
+
+function switchDocSource(source) {
+  if (source === CURRENT_DOC_SOURCE) return;
+  CURRENT_DOC_SOURCE = source;
+  document.querySelectorAll('.doc-source-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.source === source);
+  });
+  if (source === 'rfp') {
+    loadPdfPages(
+      `/contracts/document/${RFP_DOC_ID}/pages/`,
+      p => `/contracts/document/${RFP_DOC_ID}/page/${p}/`,
+    );
+  } else {
+    loadPdfPages(
+      `/performance/deliverable/${DEL_ID}/pages/`,
+      p => `/performance/deliverable/${DEL_ID}/page/${p}/`,
+    );
+  }
+}
+
+loadPdfPages(
+  `/performance/deliverable/${DEL_ID}/pages/`,
+  p => `/performance/deliverable/${DEL_ID}/page/${p}/`,
+);
 </script>
 {% endblock %}
