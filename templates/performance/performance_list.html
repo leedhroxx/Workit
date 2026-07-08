@@ -52,8 +52,8 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
               {{ perf.contract.company_name }}
             </span>
-            {% if perf.contract.budget %}
-            <span>{{ perf.contract.budget }}</span>
+            {% if perf.contract.contract_start and perf.contract.contract_end %}
+            <span>{{ perf.contract.contract_start|date:"Y.m.d" }} ~ {{ perf.contract.contract_end|date:"Y.m.d" }}</span>
             {% endif %}
           </div>
           <div class="perf-progress-bar">
@@ -146,22 +146,12 @@ const CALENDAR_EVENTS = {{ calendar_events_json|safe }};
 let currentPerfId = null;
 
 // ── Calendar ──
-// ── Calendar ──
 (function() {
   const el = document.getElementById('perfCalendar');
   if (!el) return;
   const today = new Date();
   let year = today.getFullYear(), month = today.getMonth();
   const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
-
-  function ymd(dateStr) { return dateStr ? dateStr.replace(/-/g,'') : ''; }
-  function cellYMD(y, m, d) {
-    return `${y}${String(m+1).padStart(2,'0')}${String(d).padStart(2,'0')}`;
-  }
-  function inRange(y, m, d, s, e) {
-    const c = cellYMD(y, m, d);
-    return c >= ymd(s) && c <= ymd(e);
-  }
 
   function render() {
     const firstDow = new Date(year, month, 1).getDay();
@@ -172,52 +162,13 @@ let currentPerfId = null;
     for (let d = 1; d <= daysInMonth; d++) cells.push(d);
     while (cells.length % 7 !== 0) cells.push(null);
 
-    // 1. 데이터 전처리: 마감일 일정을 계약 기간 바 내부로 통합
-    const mergedEvents = [];
-    
+    // 이제 남는 이벤트는 전부 하루짜리 산출물 제출일이라(계약 기간 줄은 이행
+    // 현황 카드로 이동), 여러 날에 걸친 막대 배치(트랙) 계산이 필요 없다 —
+    // 그날그날 점으로만 표시하면 되므로 날짜별로 묶어두기만 한다.
+    const eventsByDay = {};
     CALENDAR_EVENTS.forEach(ev => {
-      if (ev.is_contract_period) {
-        const newEv = { ...ev, target_due_dates: [] };
-        mergedEvents.push(newEv);
-      }
+      (eventsByDay[ev.start_date] = eventsByDay[ev.start_date] || []).push(ev);
     });
-
-    CALENDAR_EVENTS.forEach(ev => {
-      if (!ev.is_contract_period) {
-        const parentBar = mergedEvents.find(p => p.performance_id === ev.performance_id);
-        if (parentBar) {
-          parentBar.target_due_dates.push({
-            date: ev.start_date, 
-            type: ev.deliverable_type 
-          });
-        } else {
-          mergedEvents.push({ ...ev, target_due_dates: [] });
-        }
-      }
-    });
-
-    const activeEvents = mergedEvents.filter(ev => {
-      const monthStart = cellYMD(year, month, 1);
-      const monthEnd   = cellYMD(year, month, daysInMonth);
-      return ymd(ev.end_date) >= monthStart && ymd(ev.start_date) <= monthEnd;
-    });
-
-    // 트랙 배치 계산
-    const trackMap = {};
-    const occupied = {};
-    activeEvents.forEach(ev => {
-      const evCells = [];
-      cells.forEach((d, ci) => {
-        if (d && inRange(year, month, d, ev.start_date, ev.end_date)) evCells.push(ci);
-      });
-      if (!evCells.length) return;
-      let t = 0;
-      while (evCells.some(ci => occupied[ci] && occupied[ci].has(t))) t++;
-      trackMap[ev.id] = t;
-      evCells.forEach(ci => { (occupied[ci] = occupied[ci] || new Set()).add(t); });
-    });
-
-    const maxTrack = activeEvents.length ? Math.max(...Object.values(trackMap)) + 1 : 0;
 
     // ── HTML 빌드 ──
     let html = `<div class="cal-nav">
@@ -233,85 +184,26 @@ let currentPerfId = null;
     const weeks = [];
     for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
-    weeks.forEach((week, wi) => {
-      // 날짜 행
+    weeks.forEach((week) => {
       html += `<tr class="cal-date-row">`;
       week.forEach((d, di) => {
         const isToday = d && d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
         const cls = [di===0?'sun':'', di===6?'sat':''].filter(Boolean).join(' ');
+        const dayStr = d ? `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}` : '';
+        const dayEvents = d ? (eventsByDay[dayStr] || []) : [];
+
+        const dotsHtml = dayEvents.map(ev => `<span class="cal-ev-dot" style="color:${ev.color || '#4f46e5'};"
+            onclick="event.stopPropagation(); openPerfDetail(${ev.performance_id})"
+            onmouseover="showCalTooltip(event, '${ev.project_name}', '${ev.deliverable_type} 제출일')"
+            onmouseout="hideCalTooltip()"
+          >&#9670;</span>`).join('');
+
         html += `<td class="cal-td ${cls}">
           ${d ? `<span class="cal-day-num${isToday?' today-num':''}">${d}</span>` : ''}
+          ${dotsHtml ? `<div class="cal-ev-dots">${dotsHtml}</div>` : ''}
         </td>`;
       });
       html += `</tr>`;
-
-      // 이벤트 바 행
-      for (let t = 0; t < maxTrack; t++) {
-        const hasAny = week.some((d,di) => {
-          if (!d) return false;
-          return activeEvents.some(ev => trackMap[ev.id] === t && inRange(year, month, d, ev.start_date, ev.end_date));
-        });
-        if (!hasAny) continue;
-
-        html += `<tr class="cal-ev-row">`;
-        let di = 0;
-        while (di < week.length) {
-          const d = week[di];
-          if (!d) { html += `<td class="cal-ev-td"></td>`; di++; continue; }
-
-          const ev = activeEvents.find(e =>
-            trackMap[e.id] === t && inRange(year, month, d, e.start_date, e.end_date)
-          );
-
-          if (!ev) { html += `<td class="cal-ev-td"></td>`; di++; continue; }
-
-          let span = 1;
-          while (di + span < week.length) {
-            const nd = week[di + span];
-            if (nd && inRange(year, month, nd, ev.start_date, ev.end_date)) span++;
-            else break;
-          }
-
-          html += `<td class="cal-ev-td" colspan="${span}" style="padding: 4px 0;">`;
-          html += `<div style="display: flex; width: 100%; height: 14px; align-items: center; position: relative;">`;
-
-          for (let s = 0; s < span; s++) {
-            const currentDay = week[di + s];
-            const currentDayStr = `${year}-${String(month+1).padStart(2,'0')}-${String(currentDay).padStart(2,'0')}`;
-            
-            const targetDue = ev.target_due_dates && ev.target_due_dates.find(td => td.date === currentDayStr);
-            const isTargetDay = !!targetDue;
-            const barBg = ev.color || '#4f46e5';
-            
-            // 💡 디자인 요구사항 반영: 일반 선은 3px 두께에 연하게, 마감일은 7px 두께에 선명하고 진하게 처리
-            const barStyle = isTargetDay 
-              ? `background: ${barBg}; opacity: 1; height: 6px;` 
-              : `background: ${barBg}; opacity: 0.5; height: 4px;`;
-
-            const tooltipTitle = ev.project_name;
-            const tooltipDesc = isTargetDay ? `${targetDue.type} 제출일` : `계약 기간`;
-
-            const isStartCell = (s === 0 && currentDayStr === ev.start_date);
-            const isEndCell = (s === span - 1 && currentDayStr === ev.end_date);
-            const radiusStyle = `border-top-left-radius: ${isStartCell?'4px':'0'}; border-bottom-left-radius: ${isStartCell?'4px':'0'}; border-top-right-radius: ${isEndCell?'4px':'0'}; border-bottom-right-radius: ${isEndCell?'4px':'0'};`;
-
-            html += `<div class="cal-ev-sub-bar"
-              style="flex: 1; ${barStyle} ${radiusStyle} margin: 0 1px; cursor: pointer; transition: all 0.1s;"
-              onclick="event.stopPropagation(); openPerfDetail(${ev.performance_id})"
-              onmouseover="showCalTooltip(event, '${tooltipTitle}', '${tooltipDesc}')"
-              onmouseout="hideCalTooltip()"
-            ></div>`;
-          }
-
-          html += `</div></td>`;
-          di += span;
-        }
-        html += `</tr>`;
-      }
-
-      if (maxTrack === 0) {
-        html += `<tr class="cal-ev-row cal-ev-spacer"><td colspan="7"></td></tr>`;
-      }
     });
 
     html += `</tbody></table>`;
@@ -323,10 +215,8 @@ let currentPerfId = null;
   function renderLegend() {
     const leg = document.getElementById('calendarLegend');
     if (leg) {
-      leg.innerHTML = 
-          `<span class="legend-item"><span class="legend-line" style="background:#aaa; height:3px; width:16px; display:inline-block; border-radius:2px; margin-right:6px;"></span>완료(준공)</span>`
-        + `<span class="legend-item"><span class="legend-line" style="background:#4f46e5; opacity:0.5; height:3px; width:16px; display:inline-block; border-radius:2px; margin-right:6px;"></span>계약 기간</span>`
-        + `<span class="legend-item"><span class="legend-line" style="background:#4f46e5; opacity:1; height:5px; width:16px; display:inline-block; border-radius:2px; margin-right:6px;"></span>산출물 제출일</span>`;
+      leg.innerHTML =
+          `<span class="legend-item"><span class="legend-dot" style="color:#4f46e5;">&#9670;</span>산출물 제출일</span>`;
     }
   }
 
@@ -344,193 +234,14 @@ let currentPerfId = null;
   render();
 })();
 
-// (function() {
-//   const el = document.getElementById('perfCalendar');
-//   if (!el) return;
-//   const today = new Date();
-//   let year = today.getFullYear(), month = today.getMonth();
-//   const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
-
-//   function ymd(dateStr) { return dateStr ? dateStr.replace(/-/g,'') : ''; }
-//   function cellYMD(y, m, d) {
-//     return `${y}${String(m+1).padStart(2,'0')}${String(d).padStart(2,'0')}`;
-//   }
-//   function inRange(y, m, d, s, e) {
-//     const c = cellYMD(y, m, d);
-//     return c >= ymd(s) && c <= ymd(e);
-//   }
-
-//   function render() {
-//     const firstDow = new Date(year, month, 1).getDay();
-//     const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-//     // 전체 날짜 배열 (빈칸=null 포함)
-//     const cells = [];
-//     for (let i = 0; i < firstDow; i++) cells.push(null);
-//     for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-//     // 6주 채우기
-//     while (cells.length % 7 !== 0) cells.push(null);
-
-//     // 현재 월에 걸치는 이벤트만 필터
-//     const activeEvents = CALENDAR_EVENTS.filter(ev => {
-//       // start_date 또는 end_date 중 하나라도 이번 달에 걸치면 포함
-//       const monthStart = cellYMD(year, month, 1);
-//       const monthEnd   = cellYMD(year, month, daysInMonth);
-//       return ymd(ev.end_date) >= monthStart && ymd(ev.start_date) <= monthEnd;
-//     });
-
-//     // 셀 인덱스별 트랙 점유 계산 (겹치는 이벤트를 서로 다른 행에 배치)
-//     const trackMap = {};   // ev.id → track
-//     const occupied = {};   // cellIdx → Set<track>
-//     activeEvents.forEach(ev => {
-//       const evCells = [];
-//       cells.forEach((d, ci) => {
-//         if (d && inRange(year, month, d, ev.start_date, ev.end_date)) evCells.push(ci);
-//       });
-//       if (!evCells.length) return;
-//       let t = 0;
-//       while (evCells.some(ci => occupied[ci] && occupied[ci].has(t))) t++;
-//       trackMap[ev.id] = t;
-//       evCells.forEach(ci => { (occupied[ci] = occupied[ci] || new Set()).add(t); });
-//     });
-
-//     const maxTrack = activeEvents.length ? Math.max(...Object.values(trackMap)) + 1 : 0;
-
-//     // ── HTML 빌드 ──
-//     let html = `<div class="cal-nav">
-//       <button onclick="calPrev()">&#8249;</button>
-//       <span>${year}년 ${MONTHS[month]}</span>
-//       <button onclick="calNext()">&#8250;</button>
-//     </div>`;
-
-//     // 요일 헤더
-//     html += `<table class="cal-table"><thead><tr>
-//       <th class="sun">일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th class="sat">토</th>
-//     </tr></thead><tbody>`;
-
-//     const weeks = [];
-//     for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
-
-//     weeks.forEach((week, wi) => {
-//       // 날짜 숫자 행
-//       html += `<tr class="cal-date-row">`;
-//       week.forEach((d, di) => {
-//         const isToday = d && d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-//         const cls = [di===0?'sun':'', di===6?'sat':'', isToday?'today-cell':''].filter(Boolean).join(' ');
-//         html += `<td class="cal-td ${cls}">
-//           ${d ? `<span class="cal-day-num${isToday?' today-num':''}">${d}</span>` : ''}
-//         </td>`;
-//       });
-//       html += `</tr>`;
-
-//       // 이벤트 바 행 (트랙별)
-//       for (let t = 0; t < maxTrack; t++) {
-//         // 이 주(week)에 이 트랙에 해당하는 이벤트가 있는지 확인
-//         const hasAny = week.some((d,di) => {
-//           if (!d) return false;
-//           return activeEvents.some(ev => trackMap[ev.id] === t && inRange(year, month, d, ev.start_date, ev.end_date));
-//         });
-//         if (!hasAny) continue;
-
-//         html += `<tr class="cal-ev-row">`;
-//         let di = 0;
-//         while (di < week.length) {
-//           const d = week[di];
-//           if (!d) { html += `<td class="cal-ev-td"></td>`; di++; continue; }
-
-//           const ev = activeEvents.find(e =>
-//             trackMap[e.id] === t && inRange(year, month, d, e.start_date, e.end_date)
-//           );
-
-//           if (!ev) { html += `<td class="cal-ev-td"></td>`; di++; continue; }
-
-//           // colspan 계산 (이 주 안에서 연속된 셀 수)
-//           let span = 1;
-//           while (di + span < week.length) {
-//             const nd = week[di + span];
-//             if (nd && inRange(year, month, nd, ev.start_date, ev.end_date)) span++;
-//             else break;
-//           }
-
-//           const isEvStart = d && cellYMD(year,month,d) === ymd(ev.start_date);
-//           const isEvEnd   = week[di+span-1] && cellYMD(year,month,week[di+span-1]) === ymd(ev.end_date);
-//           const label = isEvStart ? ev.deliverable_type : '';
-//           const br = `${isEvStart?'4px':'0'} ${isEvEnd?'4px':'0'} ${isEvEnd?'4px':'0'} ${isEvStart?'4px':'0'}`;
-//           const ml = isEvStart ? '2px' : '0';
-//           const mr = isEvEnd   ? '2px' : '0';
-
-//           // html += `<td class="cal-ev-td" colspan="${span}">
-//           //   <div class="cal-ev-bar"
-//           //     style="background:${ev.color};border-radius:${br};margin:0 ${mr} 0 ${ml}"
-//           //     onclick="event.stopPropagation();openPerfDetail(${ev.performance_id})"
-//           //     onmouseover="showCalTooltip(event,'${ev.project_name}','${ev.deliverable_type}')"
-//           //     onmouseout="hideCalTooltip()"
-//           //   ><span class="cal-ev-label">${label}</span></div>
-//           // </td>`;
-          
-//           // 계약 기간 바는 얇게, 산출물 바는 기존대로
-//           const isContractPeriod = ev.is_contract_period || false;
-//           const barHeight = isContractPeriod ? '3px' : ''; // 얇은 줄
-//           const barOpacity = isContractPeriod ? '0.5' : '1';
-//           const barLabel = isContractPeriod ? '' : label;   // 계약기간 바엔 텍스트 없음
-
-//           html += `<td class="cal-ev-td" colspan="${span}">
-//             <div class="cal-ev-bar"
-//               style="background:${ev.color};
-//                     border-radius:${br};
-//                     margin:0 ${mr} 0 ${ml};
-//                     ${isContractPeriod ? 'height:3px;opacity:0.5;' : ''}
-//                     "
-//               onclick="event.stopPropagation();openPerfDetail(${ev.performance_id})"
-//               onmouseover="showCalTooltip(event,'${ev.project_name}','${isContractPeriod ? `계약 기간` : ev.deliverable_type}')"
-//               onmouseout="hideCalTooltip()"
-//             ><span class="cal-ev-label">${barLabel}</span></div>
-//           </td>`;
-
-//           di += span;
-//         }
-//         html += `</tr>`;
-//       }
-
-//       // 이벤트 없는 주에도 최소 여백 행
-//       if (maxTrack === 0) {
-//         html += `<tr class="cal-ev-row cal-ev-spacer"><td colspan="7"></td></tr>`;
-//       }
-//     });
-
-//     html += `</tbody></table>`;
-//     el.innerHTML = html;
-//     renderLegend();
-//     applyAccentColors();
-//   }
-
-//   function renderLegend() {
-//       const leg = document.getElementById('calendarLegend');
-//       leg.innerHTML = 
-//           `<span class="legend-item"><span class="legend-line" style="background:#aaa"></span>완료(준공)</span>`
-//           + `<span class="legend-item"><span class="legend-line" style="background:#666;height:2px;opacity:0.5"></span>계약 기간</span>`;
-//   }
-
-//   function applyAccentColors() {
-//     CALENDAR_EVENTS.forEach(ev => {
-//         const accent = document.getElementById(`perf-accent-${ev.performance_id}`);
-//         if (accent) {
-//             accent.style.background = ev.color;
-//         }
-//     });
-//   }  
-
-//   window.calPrev = () => { month--; if (month<0){month=11;year--;} render(); };
-//   window.calNext = () => { month++; if (month>11){month=0;year++;} render(); };
-//   render();
-// })();
-
 // ── Tooltip ──
 const tooltip = Object.assign(document.createElement('div'), {className:'cal-tooltip'});
 document.body.appendChild(tooltip);
 window.showCalTooltip = (e, name, type) => {
   tooltip.innerHTML = `<strong>${name}</strong><br><span>${type}</span>`;
-  tooltip.style.cssText = `display:block;left:${e.clientX+10}px;top:${e.clientY-30}px`;
+  // 마우스 커서 위치가 아니라, 가리킨 기호(◆) 자체를 기준으로 그 오른쪽에 띄운다
+  const rect = e.currentTarget.getBoundingClientRect();
+  tooltip.style.cssText = `display:block;left:${rect.right + 6}px;top:${rect.top - 4}px`;
 };
 window.hideCalTooltip = () => tooltip.style.display = 'none';
 
