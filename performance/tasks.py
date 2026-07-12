@@ -85,7 +85,7 @@ def parse_execution_plan_task(self, deliverable_id: int):
     import sys
 
     from performance.models import Deliverable, ExecutionPlanParsedData
-    from contracts.utils import extract_text
+    from contracts.utils import extract_text, local_copy
     from performance.parsers import parse_execution_plan, to_qa_agent_records
 
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -104,7 +104,8 @@ def parse_execution_plan_task(self, deliverable_id: int):
         if not deliverable.file:
             raise ValueError('과업수행계획서 파일이 없습니다.')
 
-        text = extract_text(deliverable.file.path)
+        with local_copy(deliverable.file) as _local:
+            text = extract_text(_local)
         if not text.strip():
             raise ValueError('과업수행계획서 텍스트 추출 실패 — 파일을 확인하세요.')
 
@@ -275,7 +276,7 @@ def parse_final_report_task(self, deliverable_id: int):
     import sys
 
     from performance.models import Deliverable, FinalReportParsedData
-    from contracts.utils import extract_text
+    from contracts.utils import extract_text, local_copy
     from performance.parsers import parse_final_report, to_qa_agent_records
 
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -294,7 +295,8 @@ def parse_final_report_task(self, deliverable_id: int):
         if not deliverable.file:
             raise ValueError('사업추진결과보고서 파일이 없습니다.')
 
-        text = extract_text(deliverable.file.path)
+        with local_copy(deliverable.file) as _local:
+            text = extract_text(_local)
         if not text.strip():
             raise ValueError('사업추진결과보고서 텍스트 추출 실패 — 파일을 확인하세요.')
 

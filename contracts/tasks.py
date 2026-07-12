@@ -63,7 +63,7 @@ def _chunk_contract(text: str) -> list[dict]:
 def analyze_document_task(self, doc_id):
     """AI 분석 비동기 태스크"""
     from contracts.models import ContractDocument, AIReviewResult
-    from contracts.utils import extract_text, parse_to_workit
+    from contracts.utils import extract_text, parse_to_workit, local_copy
 
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for p in [os.path.join(BASE_DIR, 'rag'), os.path.join(BASE_DIR, 'data')]:
@@ -78,7 +78,8 @@ def analyze_document_task(self, doc_id):
     blanks = []
     try:
         from contracts.contract_field_checker import check_contract_fields
-        blanks = check_contract_fields(doc.file.path)
+        with local_copy(doc.file) as _local:
+            blanks = check_contract_fields(_local)
     except Exception:
         import traceback
         print(f'[analyze_document_task] 계약서 빈칸 검사 실패 (doc_id={doc_id}):\n{traceback.format_exc()}')
@@ -88,26 +89,27 @@ def analyze_document_task(self, doc_id):
 
     # 2. RAG + sLLM 법률 조항 검토 (실패해도 위 빈칸 결과는 유지한 채 계속 진행)
     try:
-        file_text = extract_text(doc.file.path)
-        if not file_text.strip():
-            raise ValueError('텍스트 추출 실패')
+        with local_copy(doc.file) as local_path:
+            file_text = extract_text(local_path)
+            if not file_text.strip():
+                raise ValueError('텍스트 추출 실패')
 
-        clause_positions = {}
-        file_path_lower = doc.file.path.lower()
-
-        try:
-            from clause_locator import extract_clause_positions
-
-            if file_path_lower.endswith('.pdf'):
-                clause_positions = extract_clause_positions(doc.file.path)
-            elif file_path_lower.endswith('.hwp'):
-                from hwp_converter import convert_hwp_to_pdf
-                import tempfile
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    converted_pdf = convert_hwp_to_pdf(doc.file.path, tmp_dir)
-                    clause_positions = extract_clause_positions(converted_pdf)
-        except Exception:
             clause_positions = {}
+            file_path_lower = local_path.lower()
+
+            try:
+                from clause_locator import extract_clause_positions
+
+                if file_path_lower.endswith('.pdf'):
+                    clause_positions = extract_clause_positions(local_path)
+                elif file_path_lower.endswith('.hwp'):
+                    from hwp_converter import convert_hwp_to_pdf
+                    import tempfile
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        converted_pdf = convert_hwp_to_pdf(local_path, tmp_dir)
+                        clause_positions = extract_clause_positions(converted_pdf)
+            except Exception:
+                clause_positions = {}
 
         from qdrant_client import QdrantClient
         from law_rag_pipeline import search_jo, DEFAULT_MIN_SCORE
@@ -296,7 +298,7 @@ def parse_rfp_task(self, rfp_doc_id: int):
     """
     from django.utils import timezone
     from contracts.models import ContractDocument, RFPParsedData
-    from contracts.utils import extract_text
+    from contracts.utils import extract_text, local_copy
     from contracts.parsers import parse_rfp, to_qa_agent_records  # ← 규칙 기반 파서
 
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -312,7 +314,8 @@ def parse_rfp_task(self, rfp_doc_id: int):
     parsed.save(update_fields=['parse_status', 'error_message'])
 
     try:
-        text = extract_text(rfp_doc.file.path)
+        with local_copy(rfp_doc.file) as _local:
+            text = extract_text(_local)
         if not text.strip():
             raise ValueError('RFP 텍스트 추출 실패 — 파일을 확인하세요.')
 

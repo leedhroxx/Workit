@@ -567,11 +567,13 @@ def deliverable_page_count(request, del_id):
         return JsonResponse({'pages': 0})
     try:
         from pdf2image import pdfinfo_from_path
+        from contracts.utils import local_copy
         poppler_path = r"C:\poppler-24.08.0\Library\bin"
-        info = pdfinfo_from_path(
-            d.file.path,
-            poppler_path=poppler_path if os.name == 'nt' else None,
-        )
+        with local_copy(d.file) as _local:
+            info = pdfinfo_from_path(
+                _local,
+                poppler_path=poppler_path if os.name == 'nt' else None,
+            )
         return JsonResponse({'pages': info['Pages']})
     except Exception:
         return JsonResponse({'pages': 1})
@@ -588,23 +590,19 @@ def deliverable_page_image(request, del_id, page):
         return HttpResponse(status=404)
     try:
         from pdf2image import convert_from_path
-        import io, shutil, tempfile
+        from contracts.utils import local_copy
+        import io
 
         poppler_path = r"C:\poppler-24.08.0\Library\bin"
 
-        # 한글 경로 문제 해결 - 임시 파일로 복사
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            tmp_path = tmp.name
-            shutil.copy2(d.file.path, tmp_path)
-
-        images = convert_from_path(
-            tmp_path,
-            dpi=150,
-            first_page=page,
-            last_page=page,
-            poppler_path=poppler_path if os.name == 'nt' else None,
-        )
-        os.unlink(tmp_path)
+        with local_copy(d.file) as _local:
+            images = convert_from_path(
+                _local,
+                dpi=150,
+                first_page=page,
+                last_page=page,
+                poppler_path=poppler_path if os.name == 'nt' else None,
+            )
 
         if not images:
             return HttpResponse(status=404)
@@ -650,8 +648,10 @@ def deliverable_ai_analyze(request, del_id):
             return JsonResponse({'status': 'error', 'message': '파일이 없습니다.'}, status=400)
 
         from .tech_apply_checker import check_tech_apply
+        from contracts.utils import local_copy
         try:
-            result = check_tech_apply(d.file.path)
+            with local_copy(d.file) as _local:
+                result = check_tech_apply(_local)
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': f'분석 중 오류가 발생했습니다: {e}'}, status=400)
 

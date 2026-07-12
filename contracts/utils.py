@@ -5,9 +5,35 @@ contracts/utils.py
 - parse_to_workit(): RAG+sLLM 결과 → Workit AIReviewResult 형식 변환
 """
 
+import os
 import re
+import tempfile
+from contextlib import contextmanager
 
 _VERDICT_RE = re.compile(r"판정\s*:\s*(\S+)")
+
+
+@contextmanager
+def local_copy(filefield):
+    """S3/로컬 공용: FileField를 임시 로컬 파일로 내려받아 경로를 yield. 원본 확장자 유지."""
+    ext = os.path.splitext(filefield.name)[1] or '.bin'
+    tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    try:
+        filefield.open('rb')
+        for chunk in filefield.chunks():
+            tmp.write(chunk)
+        tmp.flush()
+        tmp.close()
+        try:
+            filefield.close()
+        except Exception:
+            pass
+        yield tmp.name
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
 
 def extract_text(file_path: str) -> str:

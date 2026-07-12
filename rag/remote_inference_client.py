@@ -9,9 +9,13 @@ law_rag_pipeline.search_jo()는 model.encode()/reranker.compute_score() 인터�
 알면 되므로, 아래 두 클래스는 그 인터페이스를 그대로 흉내 낸다 — search_jo() 쪽
 코드는 한 줄도 바꿀 필요가 없다.
 """
+import os
 import numpy as np
 import requests
 
+def _auth_headers():
+    key = os.environ.get("RUNPOD_API_KEY", "")
+    return {"Authorization": f"Bearer {key}"} if key else {}
 
 class RemoteEmbedModel:
     """BGEM3FlagModel.encode()와 같은 인터페이스로 /embed를 호출한다."""
@@ -24,6 +28,7 @@ class RemoteEmbedModel:
         resp = requests.post(
             f"{self.base_url}/embed",
             json={"texts": list(texts)},
+            headers=_auth_headers(),
             timeout=self.timeout,
         )
         resp.raise_for_status()
@@ -49,6 +54,7 @@ class RemoteReranker:
         resp = requests.post(
             f"{self.base_url}/rerank",
             json={"query": query, "texts": texts},
+            headers=_auth_headers(),
             timeout=self.timeout,
         )
         resp.raise_for_status()
@@ -65,6 +71,7 @@ def remote_predict(item: dict, base_url: str, timeout: int = 120) -> dict:
     resp = requests.post(
         f"{base_url.rstrip('/')}/predict",
         json={"item": item},
+        headers=_auth_headers(),
         timeout=timeout,
     )
     resp.raise_for_status()

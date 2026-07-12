@@ -43,16 +43,19 @@ def sync_deliverable_dates_from_kickoff(kickoff_deliverable, overwrite: bool = F
                         kickoff_deliverable.id)
         return result
 
-    file_path = kickoff_deliverable.file.path
-    if not file_path.lower().endswith('.pdf'):
+    file_name = kickoff_deliverable.file.name
+    if not file_name.lower().endswith('.pdf'):
         logger.warning(
             "kickoff Deliverable(id=%s)이 PDF가 아니라 자동 일정 반영을 건너뜁니다. (%s)",
-            kickoff_deliverable.id, file_path,
+            kickoff_deliverable.id, file_name,
         )
         return result
 
+    from contracts.utils import local_copy
+
     try:
-        parsed_items = parse_output_plan(file_path)
+        with local_copy(kickoff_deliverable.file) as file_path:
+            parsed_items = parse_output_plan(file_path)
     except Exception:
         logger.exception("사업수행계획서 파싱 실패 (deliverable_id=%s)", kickoff_deliverable.id)
         raise
