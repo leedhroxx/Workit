@@ -14,7 +14,9 @@ import numpy as np
 import requests
 
 def _auth_headers():
-    key = os.environ.get("RUNPOD_API_KEY", "")
+    # 주의: 이름에 "RUNPOD_" 접두사를 쓰면 안 됨 — RunPod이 그 접두사의 환경변수를
+    # 플랫폼 자체 용도로 예약해서 pod 안에서 자동으로 다른 값이 주입돼버린다.
+    key = os.environ.get("LLM_API_KEY", "")
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 class RemoteEmbedModel:
