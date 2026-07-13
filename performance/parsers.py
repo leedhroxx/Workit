@@ -893,3 +893,106 @@ def _compare_pep_to_rpt(pep_sections: dict, rpt_sections: dict, mapping_list: li
 def compare_pep_and_final(pep_json: dict, rpt_json: dict) -> dict:
     """파싱된 PEP(사업수행계획서) JSON과 RPT(사업추진결과보고서) JSON을 비교한다 — 계획 대비 이행 여부."""
     return _compare_pep_to_rpt(pep_json, rpt_json, _PEP_TO_RPT_MAPPING)
+
+def collect_llm_compare_items_rfp_pep(rfp_json: dict, pep_json: dict) -> list[dict]:
+    """_RFP_TO_PEP_MAPPING을 순회하며 LLM 판정용 원문 발췌를 모은다 (LLM 호출 없음).
+
+    RFP 섹션 자체가 없으면 비교할 게 없으므로 건너뛴다. 대응 PEP 섹션들의 본문을
+    이어붙여 pep_excerpt로 쓰고, 없으면 빈 문자열로 둬서 LLM이 "본문에 없음"으로
+    정확히 판정하게 한다(억지로 값을 지어내지 않는다).
+    """
+    items = []
+    for mapping in _RFP_TO_PEP_MAPPING:
+        rfp_code = mapping['rfp_code']
+        rfp_section = rfp_json.get(rfp_code, {})
+        if not rfp_section.get('found', False):
+            continue
+
+        pep_excerpt = '\n\n'.join(
+            pep_json[c]['content'] for c in mapping['target_codes']
+            if pep_json.get(c, {}).get('found', False) and pep_json[c].get('content', '').strip()
+        )
+
+        items.append({
+            'rfp_code': rfp_code,
+            'description': mapping['description'],
+            'required': mapping['required'],
+            'rfp_excerpt': rfp_section.get('content', ''),
+            'pep_excerpt': pep_excerpt,
+        })
+    return items
+
+
+def collect_llm_compare_items_pep_rpt(pep_json: dict, rpt_json: dict) -> list[dict]:
+    """_PEP_TO_RPT_MAPPING을 순회하며 LLM 판정용 원문 발췌를 모은다 (LLM 호출 없음)."""
+    items = []
+    for mapping in _PEP_TO_RPT_MAPPING:
+        pep_code = mapping['pep_code']
+        pep_section = pep_json.get(pep_code, {})
+        if not pep_section.get('found', False):
+            continue
+
+        rpt_excerpt = '\n\n'.join(
+            rpt_json[c]['content'] for c in mapping['target_codes']
+            if rpt_json.get(c, {}).get('found', False) and rpt_json[c].get('content', '').strip()
+        )
+
+        items.append({
+            'pep_code': pep_code,
+            'description': mapping['description'],
+            'required': mapping['required'],
+            'pep_excerpt': pep_section.get('content', ''),
+            'rpt_excerpt': rpt_excerpt,
+        })
+    return items
+
+
+def merge_llm_verdicts(comparison_json: dict, llm_results: dict, code_key: str) -> dict:
+    """구조적 비교 결과(comparison_json)에 LLM 판정(llm_results)을 병합해 재작성한다.
+
+    llm_results: {코드: {'description','required','label','eval'}} — collect_llm_compare_items_*로
+    모은 항목에 LLM 판정을 붙인 것. label(충족/검토/불가) 그대로 satisfied/partial/unsatisfied로
+    나누고, message를 LLM의 eval 근거로 재작성한다. 점수(퍼센트)는 계산하지 않는다 —
+    항목별 충족/검토/불가 개수만 보여준다.
+
+    project_mismatch(다른 사업으로 보이는 경우)라 LLM을 아예 안 돌린 경우엔 이 함수를
+    호출하지 않고 기존 구조적 비교 결과를 그대로 쓴다.
+    """
+    satisfied, partial, unsatisfied = [], [], []
+
+    for code, result in llm_results.items():
+        label = result.get('label')
+        required = result.get('required', False)
+        description = result.get('description', '')
+        eval_lines = result.get('eval') or []
+
+        entry = {
+            code_key: code,
+            'description': description,
+            'required': required,
+            'llm_label': label,
+            'llm_eval': eval_lines,
+        }
+
+        if label == '충족':
+            satisfied.append(entry)
+        elif label == '검토':
+            entry['message'] = f"{description}\n" + '\n'.join(eval_lines)
+            partial.append(entry)
+        else:
+            # '불가' 또는 파싱 실패(None)는 전부 미흡으로 — 애매하면 사람이 보게 한다
+            entry['message'] = f"{description}\n" + '\n'.join(eval_lines)
+            unsatisfied.append(entry)
+
+    merged = dict(comparison_json)
+    merged.pop('overall_score', None)  # 점수 안 씀 — 항목별 개수만 사용
+    merged.update({
+        'total_items': len(satisfied) + len(partial) + len(unsatisfied),
+        'satisfied_count': len(satisfied),
+        'partial_count': len(partial),
+        'unsatisfied_count': len(unsatisfied),
+        'satisfied': satisfied,
+        'partial': partial,
+        'unsatisfied': unsatisfied,
+    })
+    return merged

@@ -180,6 +180,9 @@ const RFP_DOC_ID = {{ rfp_doc_id|default_if_none:"null" }};  // 좌측 뷰어에
 const DOC_LABEL = "{{ deliverable.get_deliverable_type_display|escapejs }}";
 const COMPARE_TARGET_LABEL = IS_FINAL ? '사업수행계획서' : '제안요청서';
 const COMPARE_TAB_INDEX = HAS_RFP_QA_STEP ? 3 : 2;  // "대응 비교" 탭이 몇 번째인지
+const COMPARE_IS_PROCESSING = {{ compare_is_processing|yesno:"true,false" }};
+const COMPARE_TASK_ID = "{{ compare_task_id|escapejs }}";
+const COMPARE_STALE_MS = {{ compare_stale_minutes }} * 60 * 1000;
 const QA_DATA = JSON.parse(document.getElementById('qa-data').textContent);
 const RFP_QA_DATA = JSON.parse(document.getElementById('rfp-qa-data').textContent);
 let COMPARISON_DATA = JSON.parse(document.getElementById('comparison-data').textContent);
@@ -222,8 +225,13 @@ function qaIntroHtml(docLabel, btnId, onclickFn) {
 
 let CURRENT_QA_REPORT = (QA_DATA && QA_DATA.qa_report) || null;
 let RFP_QA_REPORT = (RFP_QA_DATA && RFP_QA_DATA.qa_report) || null;
-let ACTIVE_QA_TAB = COMPARISON_DATA ? COMPARE_TAB_INDEX : 1;
-let COMPARE_LOADING = false;
+let ACTIVE_QA_TAB = (COMPARISON_DATA || COMPARE_IS_PROCESSING) ? COMPARE_TAB_INDEX : 1;
+let COMPARE_LOADING = COMPARE_IS_PROCESSING;
+let COMPARE_PROGRESS = {current: 0, total: 0};
+
+if (COMPARE_IS_PROCESSING) {
+  pollCompareStatus(COMPARE_TASK_ID, Date.now());
+}
 
 function initQaStep() {
   const step = document.getElementById('qaStep');
@@ -452,7 +460,11 @@ function renderRfpQaTabHtml() {
 
 function renderQaTab2Html() {
   if (COMPARE_LOADING) {
-    return `<p style="font-size:13px; color:#888; padding:10px 0;"><span class="spinner"></span> ${COMPARE_TARGET_LABEL}와 비교하는 중...</p>`;
+    const hasProgress = COMPARE_PROGRESS.total > 0;
+    const pct = hasProgress ? Math.round((COMPARE_PROGRESS.current / COMPARE_PROGRESS.total) * 100) : 0;
+    const progressText = hasProgress ? ` ${pct}% (${COMPARE_PROGRESS.current}/${COMPARE_PROGRESS.total})` : '';
+    return `<p style="font-size:13px; color:#888; padding:10px 0;"><span class="spinner"></span> ${COMPARE_TARGET_LABEL}와 비교하는 중...${progressText}</p>
+      <p style="font-size:11.5px; color:#aaa; padding:0 0 10px;">화면을 나가도 분석은 계속 진행됩니다. 완료되면 알려드려요.</p>`;
   }
   if (COMPARISON_DATA) {
     return renderComparisonHtml(COMPARISON_DATA);
@@ -474,6 +486,7 @@ function rejectQa() {
 
 function proceedToCompare() {
   COMPARE_LOADING = true;
+  COMPARE_PROGRESS = {current: 0, total: 0};
   ACTIVE_QA_TAB = COMPARE_TAB_INDEX;
   renderQaStep();
 
@@ -483,14 +496,14 @@ function proceedToCompare() {
   })
   .then(r => r.json())
   .then(data => {
-    COMPARE_LOADING = false;
-    if (data.status === 'ok') {
-      COMPARISON_DATA = data.comparison;
+    if (data.status === 'started') {
+      pollCompareStatus(data.task_id, Date.now());
     } else {
+      COMPARE_LOADING = false;
       alert(data.message || `${COMPARE_TARGET_LABEL} 비교 중 오류가 발생했습니다.`);
       ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
+      renderQaStep();
     }
-    renderQaStep();
   })
   .catch(() => {
     COMPARE_LOADING = false;
@@ -500,10 +513,47 @@ function proceedToCompare() {
   });
 }
 
+function pollCompareStatus(taskId, startedAtMs) {
+  const interval = setInterval(() => {
+    // celery worker가 죽는 등으로 task가 안 끝나면 상태가 영원히 progress/pending에
+    // 머무를 수 있다 — 서버 쪽 stale 기준(COMPARE_STALE_MS)과 맞춰 폴링도 포기하고
+    // 다시 시도할 수 있게 해준다.
+    if (Date.now() - startedAtMs > COMPARE_STALE_MS) {
+      clearInterval(interval);
+      COMPARE_LOADING = false;
+      alert('응답이 없습니다. 잠시 후 다시 시도해주세요.');
+      ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
+      renderQaStep();
+      return;
+    }
+
+    fetch(`/performance/deliverable/${DEL_ID}/compare-status/${taskId}/`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.state === 'progress') {
+          COMPARE_PROGRESS = {current: data.current, total: data.total};
+          renderQaStep();
+
+        } else if (data.state === 'success') {
+          clearInterval(interval);
+          COMPARE_LOADING = false;
+          COMPARISON_DATA = data.comparison;
+          renderQaStep();
+
+        } else if (data.state === 'error') {
+          clearInterval(interval);
+          COMPARE_LOADING = false;
+          alert(data.message || `${COMPARE_TARGET_LABEL} 비교 중 오류가 발생했습니다.`);
+          ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
+          renderQaStep();
+        }
+      });
+  }, 3000);
+}
+
 function renderComparisonHtml(cmp) {
   const compareTitle = HAS_RFP_QA_STEP ? '대응 비교' : `${COMPARE_TARGET_LABEL} 비교`;
   let html = `<div class="qa-tab-title">${compareTitle}</div>`;
-  html += `<div style="font-size:13px; font-weight:700; color:#333; margin-bottom:10px;">종합 ${cmp.overall_score}점</div>`;
   html += `<div class="qa-summary">
     <div class="qa-stat ok"><div class="num">${cmp.satisfied_count}</div><div class="lbl">충족</div></div>
     <div class="qa-stat warn"><div class="num">${cmp.partial_count}</div><div class="lbl">검토</div></div>
@@ -535,6 +585,11 @@ function renderComparisonHtml(cmp) {
 
   // 반려(다시 업로드)는 1단계(원본 산출물 자체의 소제목 매핑 QA)에서만 제공한다 —
   // 여기(대응 비교 탭)는 별도 반려 버튼을 두지 않는다.
+
+  // 대응비교 결과가 나왔으니 PDF 리포트 다운로드 버튼을 노출한다
+  // (기술적용결과표 쪽 renderTechApplyResults()는 이 버튼을 명시적으로 숨긴다).
+  const downloadBtn = document.getElementById('btnDownloadReport');
+  if (downloadBtn) downloadBtn.style.display = 'flex';
 
   return html;
 }
@@ -762,40 +817,11 @@ window.showQualityDetail = function(idx) {
   openModal('modalQualityDetail');
 };
 
-// 분석 결과를 PDF로 다운로드 (목업 결과를 POST로 전달 → 서버가 PDF 생성)
+// 대응비교 결과(comparison_json, DB에 이미 저장돼 있음)를 PDF로 다운로드.
+// contracts 쪽 계약서 분석 리포트 다운로드와 동일하게 단순 GET 링크 이동 방식 —
+// 서버가 DB에서 직접 읽어 만들기 때문에 브라우저에서 데이터를 보낼 필요가 없다.
 window.downloadReport = function() {
-  if (!ANALYSIS) { alert('먼저 AI 분석을 실행해주세요.'); return; }
-  const btn = document.getElementById('btnDownloadReport');
-  const orig = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> 생성 중...';
-
-  fetch(`/performance/deliverable/${DEL_ID}/export-pdf/`, {
-    method: 'POST',
-    headers: {'X-CSRFToken': getCsrf(), 'Content-Type': 'application/json'},
-    body: JSON.stringify({qualities: ANALYSIS.qualities, sections: ANALYSIS.sections}),
-  })
-  .then(r => {
-    if (!r.ok) throw new Error('PDF 생성 실패');
-    // 파일명은 Content-Disposition에서 추출
-    const cd = r.headers.get('Content-Disposition') || '';
-    let fname = 'AI품질분석결과.pdf';
-    const m = cd.match(/filename\*=UTF-8''([^;]+)/);
-    if (m) fname = decodeURIComponent(m[1]);
-    return r.blob().then(blob => ({blob, fname}));
-  })
-  .then(({blob, fname}) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fname;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  })
-  .catch(err => alert(err.message || 'PDF 다운로드 중 오류가 발생했습니다.'))
-  .finally(() => { btn.disabled = false; btn.innerHTML = orig; });
+  window.location.href = `/performance/deliverable/${DEL_ID}/export-pdf/`;
 };
 
 // PDF 페이지 이미지 로드 — 좌측 뷰어는 기본으로 이 산출물(사업수행계획서 등)의

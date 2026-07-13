@@ -10,6 +10,7 @@ from contracts.models import Contract
 from .models import Performance, Deliverable
 from .models import Deliverable, Notification, Performance
 from django.utils import timezone
+from datetime import timedelta
 from accounts.audit import log_audit
 from accounts.models import AuditLog
 from accounts.file_validators import validate_uploaded_file
@@ -21,6 +22,10 @@ PROJECT_COLORS = [
     '#4F63D2', '#00B894', '#6C5CE7', '#E67E22',
     '#E74C3C', '#1ABC9C', '#2980B9', '#8E44AD',
 ]
+
+# celery worker가 죽는 등으로 task가 안 끝나면 status='processing'인 채로 멈춘다.
+# 이 시간이 지나면 멈춘 것으로 보고 재비교를 허용한다 (contracts.views와 동일 패턴).
+COMPARE_STALE_MINUTES = 60
 
 # 산출물 유형별 평가 기준 문서 매핑
 DELIVERABLE_CRITERIA = {
@@ -324,6 +329,10 @@ def deliverable_analyze(request, del_id):
     # 비교한다는 점만 다르고 "파싱 → qa_agent 검수 → 2단계 비교" 흐름 자체는 동일하다.
     qa_data = None
     comparison_data = None
+    # 대응비교가 LLM 판정 때문에 수 분 걸릴 수 있어, 화면을 나갔다 돌아와도
+    # "진행중" 상태와 task_id를 이어받을 수 있게 같이 계산해둔다.
+    compare_is_processing = False
+    compare_task_id = ''
     if is_kickoff:
         parsed = getattr(d, 'parsed_data', None)
         comparison_qs = d.performance.rfp_comparisons
@@ -343,7 +352,14 @@ def deliverable_analyze(request, del_id):
             }
         comparison = comparison_qs.first() if comparison_qs is not None else None
         if comparison:
-            comparison_data = comparison.comparison_json
+            if comparison.status == 'processing' and comparison.started_at:
+                compare_is_processing = (
+                    timezone.now() - comparison.started_at <= timedelta(minutes=COMPARE_STALE_MINUTES)
+                )
+            if compare_is_processing:
+                compare_task_id = comparison.task_id
+            elif comparison.status == 'done':
+                comparison_data = comparison.comparison_json
 
     # 사업수행계획서(kickoff) 전용 "2단계 · RFP 매핑" — RFP는 계약관리→이행관리 이관
     # 시점에 이미 자동으로 파싱·QA가 끝나 있는 경우가 대부분이라, 그 결과를 그대로
@@ -388,6 +404,9 @@ def deliverable_analyze(request, del_id):
         'qa_data': qa_data,
         'rfp_qa_data': rfp_qa_data,
         'comparison_data': comparison_data,
+        'compare_is_processing': compare_is_processing,
+        'compare_task_id': compare_task_id,
+        'compare_stale_minutes': COMPARE_STALE_MINUTES,
         'tech_apply_data': tech_apply_data,
     })
 
@@ -481,9 +500,10 @@ def deliverable_parse_rfp_qa(request, del_id):
 def deliverable_compare_rfp(request, del_id):
     """
     사업수행계획서(kickoff)는 RFP와, 사업추진결과보고서(final)는 사업수행계획서(PEP)와
-    구조적으로 비교한다 — final은 "계획한 대로 실제로 이행됐는지"를 확인한다.
+    비교한다 — final은 "계획한 대로 실제로 이행됐는지"를 확인한다.
 
     호출 시점: QA 검수 결과 확인 후 "그대로 진행" 버튼 클릭 (반려 없이 비교로 넘어갈 때).
+    LLM 판정이 들어가면 수 분 걸릴 수 있어 비동기(celery .delay())로 돌리고 진행상황을 폴링한다.
     """
     d = get_object_or_404(
         Deliverable, pk=del_id,
@@ -513,22 +533,73 @@ def deliverable_compare_rfp(request, del_id):
         AIAnalysisLog.log(d, 'proceed_no_issue', user=request.user)
 
     if d.deliverable_type == 'kickoff':
+        from .models import RFPComparisonResult
         from .tasks import compare_rfp_execution_plan_task
-        result = compare_rfp_execution_plan_task.apply(args=(d.performance_id,)).get()
-        comparison_qs = d.performance.rfp_comparisons
+        result_model = RFPComparisonResult
+        task_fn = compare_rfp_execution_plan_task
     else:
+        from .models import PEPFinalComparisonResult
         from .tasks import compare_pep_final_report_task
-        result = compare_pep_final_report_task.apply(args=(d.performance_id,)).get()
-        comparison_qs = d.performance.pep_final_comparisons
+        result_model = PEPFinalComparisonResult
+        task_fn = compare_pep_final_report_task
 
-    if result.get('status') != 'ok':
-        return JsonResponse(result, status=400)
+    existing = result_model.objects.filter(performance=d.performance).first()
+    if existing and existing.status == 'processing' and existing.started_at:
+        stale = timezone.now() - existing.started_at > timedelta(minutes=COMPARE_STALE_MINUTES)
+        if not stale:
+            # 이미 진행 중인 비교가 있다 — 중복으로 새 task를 띄우지 않고
+            # (같은 GPU를 동시에 두 번 쓰면 충돌한다) 기존 task_id로 폴링을 이어가게 한다.
+            return JsonResponse({'status': 'started', 'task_id': existing.task_id})
 
-    comparison = comparison_qs.first()
-    return JsonResponse({
-        'status': 'ok',
-        'comparison': comparison.comparison_json if comparison else {},
-    })
+    task = task_fn.delay(d.performance_id)
+
+    result_model.objects.update_or_create(
+        performance=d.performance,
+        defaults={'status': 'processing', 'task_id': task.id, 'started_at': timezone.now()},
+    )
+
+    return JsonResponse({'status': 'started', 'task_id': task.id})
+
+
+
+@login_required
+def deliverable_compare_status(request, del_id, task_id):
+    """대응비교 task 진행 상태 조회 (contracts.document_ai_status와 동일 패턴)."""
+    from celery.result import AsyncResult
+    d = get_object_or_404(
+        Deliverable, pk=del_id,
+        performance__contract__created_by=request.user,
+    )
+    result = AsyncResult(task_id)
+
+    if result.state == 'PENDING':
+        return JsonResponse({'state': 'pending', 'current': 0, 'total': 1})
+
+    elif result.state == 'PROGRESS':
+        meta = result.info or {}
+        return JsonResponse({
+            'state': 'progress',
+            'current': meta.get('current', 0),
+            'total': meta.get('total', 1),
+        })
+
+    elif result.state == 'SUCCESS':
+        data = result.result or {}
+        if data.get('status') != 'ok':
+            return JsonResponse({'state': 'error', 'message': data.get('message', '비교 중 오류가 발생했습니다.')})
+
+        if d.deliverable_type == 'kickoff':
+            from .models import RFPComparisonResult
+            comparison = RFPComparisonResult.objects.filter(performance=d.performance).first()
+        else:
+            from .models import PEPFinalComparisonResult
+            comparison = PEPFinalComparisonResult.objects.filter(performance=d.performance).first()
+
+        comparison_json = comparison.comparison_json if comparison else {}
+        return JsonResponse({'state': 'success', 'comparison': comparison_json})
+
+    else:
+        return JsonResponse({'state': 'error', 'message': str(result.info)})
 
 
 @login_required
@@ -701,12 +772,13 @@ def deliverable_ai_analyze(request, del_id):
 
 
 @login_required
-@require_POST
 def deliverable_export_pdf(request, del_id):
-    """산출물 AI 품질분석 결과를 PDF로 다운로드.
+    """산출물 AI 대응비교 결과를 PDF로 다운로드.
 
-    백엔드 분석이 목업(미저장)이라, 프런트에서 분석 결과 JSON을 POST로 전달받아 PDF 생성.
-    (실제 결과 저장 모델 도입 시 GET + DB 조회 방식으로 전환 가능)
+    kickoff(사업수행계획서)는 RFPComparisonResult, final(사업추진결과보고서)은
+    PEPFinalComparisonResult에 저장된 comparison_json(충족/검토/불가 + LLM 근거)을
+    DB에서 그대로 읽어 PDF로 만든다 (contracts.document_export_pdf와 동일한
+    GET + DB 조회 패턴 — 브라우저가 분석 결과를 다시 보내줄 필요가 없다).
     """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -718,26 +790,27 @@ def deliverable_export_pdf(request, del_id):
     import io
     from datetime import datetime, timezone
     from pathlib import Path
-    
 
     d = get_object_or_404(
         Deliverable, pk=del_id,
         performance__contract__created_by=request.user,
     )
 
-    try:
-        payload = json.loads(request.body or '{}')
-    except Exception:
-        payload = {}
-    qualities = payload.get('qualities') or []
-    sections = payload.get('sections') or []
+    if d.deliverable_type == 'kickoff':
+        comparison = d.performance.rfp_comparisons.first()
+        target_label = '제안요청서(RFP) 대응비교'
+    elif d.deliverable_type == 'final':
+        comparison = d.performance.pep_final_comparisons.first()
+        target_label = '사업수행계획서 대응비교'
+    else:
+        return HttpResponse("이 산출물 유형은 PDF 리포트를 지원하지 않습니다.", status=400)
 
-    if not sections:
-        return HttpResponse("분석 결과가 없습니다. AI 분석을 먼저 실행해주세요.", status=400)
+    if not comparison or comparison.status != 'done':
+        return HttpResponse("대응비교 결과가 없습니다. AI 분석을 먼저 실행해주세요.", status=400)
+
+    cmp = comparison.comparison_json or {}
 
     # 한국어 폰트 등록 (Windows 맑은 고딕)
-    # FONT_PATH = r"C:\Windows\Fonts\malgun.ttf"
-    # FONT_BOLD_PATH = r"C:\Windows\Fonts\malgunbd.ttf"
     _bundle = Path(__file__).resolve().parent.parent / "assets" / "fonts"
     if (_bundle / "NanumGothic.ttf").exists():
         FONT_PATH, FONT_BOLD_PATH = str(_bundle / "NanumGothic.ttf"), str(_bundle / "NanumGothicBold.ttf")
@@ -771,22 +844,12 @@ def deliverable_export_pdf(request, del_id):
         "footer": style("footer", fontSize=8, textColor=colors.HexColor("#aaaaaa")),
     }
 
-    LEVEL_LABEL = {"bad": "부적합", "warn": "보완 권고", "ok": "적합"}
-    LEVEL_COLOR = {
-        "bad": colors.HexColor("#dc2626"),
-        "warn": colors.HexColor("#d97706"),
-        "ok": colors.HexColor("#2563eb"),
+    LABEL_COLOR = {
+        'satisfied': colors.HexColor("#16a34a"),
+        'partial': colors.HexColor("#d97706"),
+        'unsatisfied': colors.HexColor("#dc2626"),
     }
-
-    def score_color(sc):
-        return {
-            5: colors.HexColor("#2563eb"), 4: colors.HexColor("#60a5fa"),
-            3: colors.HexColor("#facc15"), 2: colors.HexColor("#f97316"),
-            1: colors.HexColor("#dc2626"),
-        }.get(sc, colors.HexColor("#cccccc"))
-
-    def score_text_color(sc):
-        return colors.HexColor("#5b4d00") if sc == 3 else colors.white
+    LABEL_TEXT = {'satisfied': '충족', 'partial': '검토', 'unsatisfied': '불가'}
 
     buffer = io.BytesIO()
     W = A4[0] - 40 * mm
@@ -800,21 +863,9 @@ def deliverable_export_pdf(request, del_id):
     today = datetime.now(timezone.utc).strftime("%Y년 %m월 %d일")
     contract = d.performance.contract
 
-    # 집계
-    bad_cnt = warn_cnt = ok_cnt = 0
-    for s in sections:
-        for issue in (s.get('issues') or []):
-            lv = issue[0] if issue else 'ok'
-            if lv == 'bad':
-                bad_cnt += 1
-            elif lv == 'warn':
-                warn_cnt += 1
-            else:
-                ok_cnt += 1
-
     # 헤더
-    story.append(Paragraph("AI 산출물 품질분석 결과보고서", S["title"]))
-    story.append(Paragraph("Workit — 정보화사업 산출물 AI 품질평가 플랫폼", S["subtitle"]))
+    story.append(Paragraph("AI 대응비교 분석 결과보고서", S["title"]))
+    story.append(Paragraph("Workit — 정보화사업 산출물 AI 대응비교 플랫폼", S["subtitle"]))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#4f46e5")))
     story.append(Spacer(1, 6))
 
@@ -823,8 +874,12 @@ def deliverable_export_pdf(request, del_id):
         ["프로젝트명", contract.project_name],
         ["수행 업체", contract.company_name],
         ["평가 일자", today],
-        ["평가 기준", "사업수행계획서 품질평가 기준 (16개 목차 항목 × 9개 품질특성)"],
-        ["분석 요약", f"부적합 {bad_cnt}건 · 보완 권고 {warn_cnt}건 · 적합 {ok_cnt}건"],
+        ["비교 대상", target_label],
+        ["분석 요약", (
+            f"충족 {cmp.get('satisfied_count', 0)}건 · "
+            f"검토 {cmp.get('partial_count', 0)}건 · "
+            f"불가 {cmp.get('unsatisfied_count', 0)}건"
+        )],
     ]
     t = Table(info, colWidths=[28*mm, W - 28*mm])
     t.setStyle(TableStyle([
@@ -842,70 +897,35 @@ def deliverable_export_pdf(request, del_id):
     story.append(t)
     story.append(Spacer(1, 6))
     story.append(Paragraph(
-        "※ 본 보고서는 sLLM이 평가기준서를 근거로 자동 생성한 품질평가 의견입니다. 누락·일관성 보완점을 표시하며 법적 검토는 포함하지 않습니다.",
+        "※ 본 보고서는 sLLM이 4개 판정 기준(완전성·정확성·검증가능성·추적성)으로 자동 생성한 "
+        "대응비교 의견입니다. 법적 검토는 포함하지 않습니다.",
         S["footer"]
     ))
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 10))
 
-    # 품질특성 점수표
-    story.append(Paragraph("목차 항목별 품질특성 점수", S["section"]))
-    q_short = ['완전', '정확', '명확', '일관', '특이', '검증', '수정', '추적', '이해']
-    header = ["목차 항목"] + q_short
-    table_data = [header]
-    cell_styles = []
-    for ri, s in enumerate(sections, start=1):
-        scores = s.get('scores') or []
-        row = [f"{s.get('no')}. {s.get('name')}"] + [str(x) for x in scores]
-        table_data.append(row)
-        for ci, sc in enumerate(scores, start=1):
-            cell_styles.append(("BACKGROUND", (ci, ri), (ci, ri), score_color(sc)))
-            cell_styles.append(("TEXTCOLOR", (ci, ri), (ci, ri), score_text_color(sc)))
-
-    name_w = 44 * mm
-    q_w = (W - name_w) / 9.0
-    qt = Table(table_data, colWidths=[name_w] + [q_w]*9, repeatRows=1)
-    qt.setStyle(TableStyle([
-        ("FONTNAME", (0,0), (-1,-1), FONT),
-        ("FONTNAME", (0,0), (-1,0), FONT_BOLD),
-        ("FONTSIZE", (0,0), (-1,0), 8),
-        ("FONTSIZE", (0,1), (-1,-1), 8.5),
-        ("FONTNAME", (0,1), (0,-1), FONT_BOLD),
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a237e")),
-        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-        ("ALIGN", (1,0), (-1,-1), "CENTER"),
-        ("ALIGN", (0,0), (0,-1), "LEFT"),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#dddddd")),
-        ("TOPPADDING", (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-        ("LEFTPADDING", (0,1), (0,-1), 6),
-    ] + cell_styles))
-    story.append(qt)
-    story.append(Spacer(1, 4))
-    story.append(Paragraph("점수: 5 우수 · 4 양호 · 3 보통 · 2 미흡 · 1 불량", S["footer"]))
-    story.append(Spacer(1, 6))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#dddddd")))
-
-    # 보완 필요 항목 상세
-    story.append(Paragraph("보완이 필요한 항목", S["section"]))
-    any_issue = False
-    for s in sections:
-        flagged = [iss for iss in (s.get('issues') or []) if iss and iss[0] != 'ok']
-        if not flagged:
-            continue
-        any_issue = True
-        story.append(Paragraph(f"{s.get('no')}. {s.get('name')}", S["secsub"]))
-        for iss in flagged:
-            lv = iss[0]
-            txt = iss[1] if len(iss) > 1 else ''
-            label = LEVEL_LABEL.get(lv, '')
-            color_hex = LEVEL_COLOR.get(lv, colors.black).hexval()[2:]
+    def add_group(title, entries, level):
+        if not entries:
+            return
+        story.append(Paragraph(f"{title} ({len(entries)}건)", S["section"]))
+        color_hex = LABEL_COLOR[level].hexval()[2:]
+        for e in entries:
+            desc = e.get('description', '')
+            required_tag = '필수' if e.get('required') else '선택'
             story.append(Paragraph(
-                f'<font color="#{color_hex}"><b>[{label}]</b></font> {txt}', S["body"]
+                f'<font color="#{color_hex}"><b>[{LABEL_TEXT[level]}]</b></font> '
+                f'<b>{desc}</b> <font color="#999999" size="8">({required_tag})</font>',
+                S["secsub"]
             ))
-        story.append(Spacer(1, 3))
-    if not any_issue:
-        story.append(Paragraph("보완이 필요한 항목이 발견되지 않았습니다.", S["body"]))
+            for line in (e.get('llm_eval') or []):
+                story.append(Paragraph(f'· {line}', S["body"]))
+            story.append(Spacer(1, 4))
+
+    add_group("불가 항목", cmp.get('unsatisfied') or [], 'unsatisfied')
+    add_group("검토 필요 항목", cmp.get('partial') or [], 'partial')
+    add_group("충족 항목", cmp.get('satisfied') or [], 'satisfied')
+
+    if not (cmp.get('satisfied') or cmp.get('partial') or cmp.get('unsatisfied')):
+        story.append(Paragraph("비교 항목이 없습니다.", S["body"]))
 
     # 푸터
     story.append(Spacer(1, 12))
@@ -916,7 +936,7 @@ def deliverable_export_pdf(request, del_id):
     pdf.build(story)
 
     base_name = d.filename().rsplit('.', 1)[0] if d.filename() else d.get_deliverable_type_display()
-    filename = f"{base_name}_AI품질분석결과.pdf"
+    filename = f"{base_name}_대응비교결과.pdf"
     response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
     # 한글 파일명 인코딩 (RFC 5987)
     from urllib.parse import quote

@@ -7,6 +7,45 @@ import os
 
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 
+# RunPod 원격 GPU 추론 서버 URL (contracts.tasks와 동일 패턴). 비어있으면 로컬 CPU로 폴백.
+LLM_SERVER_URL = os.environ.get('LLM_SERVER_URL', '').strip() or None
+
+
+def _rag_path():
+    """rag/ 폴더를 import 경로에 추가한다 (로컬 CPU 폴백 시 jihye_inference를 쓰기 위해)."""
+    import sys
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    rag_dir = os.path.join(base, 'rag')
+    if rag_dir not in sys.path:
+        sys.path.insert(0, rag_dir)
+
+
+def _get_pep_predictor():
+    """PEP(RFP↔사업수행계획서) 판정 함수를 하나 만들어 반환한다.
+
+    RunPod가 있으면 매번 원격 호출, 없으면 로컬 모델을 딱 한 번만 로드해서 재사용한다
+    (항목마다 매번 8B 모델을 새로 로드하면 너무 느려진다).
+    """
+    if LLM_SERVER_URL:
+        from remote_inference_client import remote_compare_pep
+        return lambda item: remote_compare_pep(item, LLM_SERVER_URL)
+    _rag_path()
+    from jihye_inference import load_model, predict_pep
+    model, tokenizer = load_model()
+    return lambda item: predict_pep(item, model, tokenizer)
+
+
+def _get_rpt_predictor():
+    """RPT(PEP↔사업추진결과보고서) 판정 함수를 하나 만들어 반환한다. _get_pep_predictor와 동일 패턴."""
+    if LLM_SERVER_URL:
+        from remote_inference_client import remote_compare_rpt
+        return lambda item: remote_compare_rpt(item, LLM_SERVER_URL)
+    _rag_path()
+    from jihye_inference import load_model, predict_rpt
+    model, tokenizer = load_model()
+    return lambda item: predict_rpt(item, model, tokenizer)
+
+
 logger = logging.getLogger(__name__)
 
 TARGET_TYPES = ['tech_apply', 'final']
@@ -186,14 +225,18 @@ def parse_execution_plan_task(self, deliverable_id: int):
 @shared_task(bind=True, max_retries=1, default_retry_delay=10)
 def compare_rfp_execution_plan_task(self, performance_id: int):
     """
-    파싱된 RFP와 과업수행계획서를 구조적으로 비교해 RFPComparisonResult에 저장한다.
+    파싱된 RFP와 과업수행계획서를 비교해 RFPComparisonResult에 저장한다.
 
-    performance.parsers.compare_rfp_and_pep() 를 사용하므로 LLM 없이 동작한다.
-    호출 시점: 비교 버튼 클릭 → rfp_compare view.
+    1) performance.parsers.compare_rfp_and_pep()로 구조적 비교(대응 섹션 존재 여부,
+       다른 사업인지 등)를 먼저 하고,
+    2) project_mismatch가 아니면 각 매핑 항목을 kanana LLM(PEP 태스크)에 실제로
+       판정시켜 충족/검토/불가로 재분류한다 (performance.parsers.merge_llm_verdicts).
+
+    LLM_SERVER_URL이 설정돼 있으면 RunPod 원격 추론, 없으면 로컬 CPU로 폴백한다.
     """
     from performance.models import Performance, ExecutionPlanParsedData, RFPComparisonResult
     from contracts.models import RFPParsedData
-    from performance.parsers import compare_rfp_and_pep
+    from performance.parsers import compare_rfp_and_pep, collect_llm_compare_items_rfp_pep, merge_llm_verdicts
 
     performance = Performance.objects.select_related('contract').get(pk=performance_id)
     contract = performance.contract
@@ -224,35 +267,52 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
     if pep_parsed.parse_status != 'done':
         return {'status': 'error', 'message': f'과업수행계획서 파싱 상태: {pep_parsed.parse_status}'}
 
-    # ── 구조적 비교 ─────────────────────────────────────────────────────────
+    # ── 구조적 비교 + LLM 판정 ─────────────────────────────────────────────
 
     try:
         comparison_json = compare_rfp_and_pep(rfp_parsed.parsed_json, pep_parsed.parsed_json)
 
-        # 이전 결과 삭제 후 최신 1건 저장
-        RFPComparisonResult.objects.filter(performance=performance).delete()
-        RFPComparisonResult.objects.create(
+        if not comparison_json.get('project_mismatch'):
+            items = collect_llm_compare_items_rfp_pep(rfp_parsed.parsed_json, pep_parsed.parsed_json)
+            total = len(items)
+            llm_results = {}
+            predict_fn = _get_pep_predictor()
+
+            for i, item in enumerate(items):
+                result = predict_fn(item)
+                llm_results[item['rfp_code']] = {
+                    'description': item['description'],
+                    'required': item['required'],
+                    'label': result.get('label'),
+                    'eval': result.get('eval'),
+                }
+                self.update_state(state='PROGRESS', meta={'current': i + 1, 'total': total})
+
+            comparison_json = merge_llm_verdicts(comparison_json, llm_results, 'rfp_code')
+
+        RFPComparisonResult.objects.update_or_create(
             performance=performance,
-            rfp_parsed=rfp_parsed,
-            execution_plan_parsed=pep_parsed,
-            comparison_json=comparison_json,
+            defaults={
+                'rfp_parsed': rfp_parsed,
+                'execution_plan_parsed': pep_parsed,
+                'comparison_json': comparison_json,
+                'status': 'done',
+            },
         )
 
         print(
             f'[compare_rfp_execution_plan_task] 완료 — performance_id={performance_id}, '
-            f'점수={comparison_json["overall_score"]}'
+            f'충족={comparison_json.get("satisfied_count")} 검토={comparison_json.get("partial_count")} '
+            f'불가={comparison_json.get("unsatisfied_count")}'
         )
-        return {
-            'status': 'ok',
-            'performance_id': performance_id,
-            'overall_score': comparison_json['overall_score'],
-        }
+        return {'status': 'ok', 'performance_id': performance_id}
 
     except Exception as exc:
         import traceback
         err = traceback.format_exc()
         print(f'[compare_rfp_execution_plan_task] 실패 — performance_id={performance_id}\n{err}')
         raise self.retry(exc=exc)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -380,13 +440,13 @@ def parse_final_report_task(self, deliverable_id: int):
 @shared_task(bind=True, max_retries=1, default_retry_delay=10)
 def compare_pep_final_report_task(self, performance_id: int):
     """
-    파싱된 사업수행계획서(PEP)와 사업추진결과보고서(RPT)를 구조적으로 비교해
-    PEPFinalComparisonResult에 저장한다.
+    파싱된 사업수행계획서(PEP)와 사업추진결과보고서(RPT)를 비교해 PEPFinalComparisonResult에 저장한다.
 
-    performance.parsers.compare_pep_and_final() 를 사용하므로 LLM 없이 동작한다.
+    compare_rfp_execution_plan_task와 동일한 2단계 구조: 구조적 비교 → LLM(RPT 태스크) 판정.
+    PEP·RPT는 같은 이행 건에 속한 문서라 project_mismatch 체크는 필요 없다.
     """
     from performance.models import Performance, ExecutionPlanParsedData, FinalReportParsedData, PEPFinalComparisonResult
-    from performance.parsers import compare_pep_and_final
+    from performance.parsers import compare_pep_and_final, collect_llm_compare_items_pep_rpt, merge_llm_verdicts
 
     performance = Performance.objects.select_related('contract').get(pk=performance_id)
 
@@ -402,9 +462,6 @@ def compare_pep_final_report_task(self, performance_id: int):
         return {'status': 'error', 'message': '사업수행계획서가 아직 파싱되지 않았습니다.'}
 
     if pep_parsed.parse_status != 'done':
-        # 사업수행계획서 파일이 재업로드되면 deliverable_upload()에서 parse_status를
-        # 'pending'으로 되돌린다 — 여기서 그 상태를 그대로 막아서, 옛 사업수행계획서
-        # 기준으로 만들어진 데이터를 사업추진결과보고서와 잘못 비교하지 않게 한다.
         if pep_parsed.parse_status == 'pending':
             message = '사업수행계획서가 파일 변경 후 아직 재분석되지 않았습니다. 이행관리에서 사업수행계획서를 먼저 분석해주세요.'
         elif pep_parsed.parse_status == 'processing':
@@ -425,35 +482,51 @@ def compare_pep_final_report_task(self, performance_id: int):
     if final_parsed.parse_status != 'done':
         return {'status': 'error', 'message': f'사업추진결과보고서 파싱 상태: {final_parsed.parse_status}'}
 
-    # ── 구조적 비교 ─────────────────────────────────────────────────────────
+    # ── 구조적 비교 + LLM 판정 ─────────────────────────────────────────────
 
     try:
         comparison_json = compare_pep_and_final(pep_parsed.parsed_json, final_parsed.parsed_json)
 
-        # 이전 결과 삭제 후 최신 1건 저장
-        PEPFinalComparisonResult.objects.filter(performance=performance).delete()
-        PEPFinalComparisonResult.objects.create(
+        items = collect_llm_compare_items_pep_rpt(pep_parsed.parsed_json, final_parsed.parsed_json)
+        total = len(items)
+        llm_results = {}
+        predict_fn = _get_rpt_predictor()
+
+        for i, item in enumerate(items):
+            result = predict_fn(item)
+            llm_results[item['pep_code']] = {
+                'description': item['description'],
+                'required': item['required'],
+                'label': result.get('label'),
+                'eval': result.get('eval'),
+            }
+            self.update_state(state='PROGRESS', meta={'current': i + 1, 'total': total})
+
+        comparison_json = merge_llm_verdicts(comparison_json, llm_results, 'pep_code')
+
+        PEPFinalComparisonResult.objects.update_or_create(
             performance=performance,
-            execution_plan_parsed=pep_parsed,
-            final_report_parsed=final_parsed,
-            comparison_json=comparison_json,
+            defaults={
+                'execution_plan_parsed': pep_parsed,
+                'final_report_parsed': final_parsed,
+                'comparison_json': comparison_json,
+                'status': 'done',
+            },
         )
 
         print(
             f'[compare_pep_final_report_task] 완료 — performance_id={performance_id}, '
-            f'점수={comparison_json["overall_score"]}'
+            f'충족={comparison_json.get("satisfied_count")} 검토={comparison_json.get("partial_count")} '
+            f'불가={comparison_json.get("unsatisfied_count")}'
         )
-        return {
-            'status': 'ok',
-            'performance_id': performance_id,
-            'overall_score': comparison_json['overall_score'],
-        }
+        return {'status': 'ok', 'performance_id': performance_id}
 
     except Exception as exc:
         import traceback
         err = traceback.format_exc()
         print(f'[compare_pep_final_report_task] 실패 — performance_id={performance_id}\n{err}')
         raise self.retry(exc=exc)
+
 
 
 # 사업수행계획서 → 산출물 일정 자동 반영 태스크 (규칙 기반, LLM 없음)
