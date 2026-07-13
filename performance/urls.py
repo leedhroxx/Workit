@@ -14,6 +14,7 @@ urlpatterns = [
     path('deliverable/<int:del_id>/parse-qa/', views.deliverable_parse_qa, name='deliverable_parse_qa'),
     path('deliverable/<int:del_id>/parse-rfp-qa/', views.deliverable_parse_rfp_qa, name='deliverable_parse_rfp_qa'),
     path('deliverable/<int:del_id>/compare-rfp/', views.deliverable_compare_rfp, name='deliverable_compare_rfp'),
+    path('deliverable/<int:del_id>/compare-status/<str:task_id>/', views.deliverable_compare_status, name='deliverable_compare_status'),
     path('deliverable/<int:del_id>/reject-qa/', views.deliverable_reject_qa, name='deliverable_reject_qa'),
     path('deliverable/<int:del_id>/pages/', views.deliverable_page_count, name='deliverable_page_count'),
     path('deliverable/<int:del_id>/page/<int:page>/', views.deliverable_page_image, name='deliverable_page_image'),

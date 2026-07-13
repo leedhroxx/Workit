@@ -78,3 +78,26 @@ def remote_predict(item: dict, base_url: str, timeout: int = 120) -> dict:
     )
     resp.raise_for_status()
     return resp.json()["prediction"]
+
+def remote_compare_pep(item: dict, base_url: str, timeout: int = 180) -> dict:
+    """RFP ↔ 사업수행계획서(PEP) 대응비교. jihye_inference.predict_pep()와 같은 반환 형식."""
+    resp = requests.post(
+        f"{base_url.rstrip('/')}/compare-pep",
+        json={"item": item},
+        headers=_auth_headers(),
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()["result"]
+
+
+def remote_compare_rpt(item: dict, base_url: str, timeout: int = 180) -> dict:
+    """사업수행계획서(PEP) ↔ 사업추진결과보고서(RPT) 대응비교. jihye_inference.predict_rpt()와 같은 반환 형식."""
+    resp = requests.post(
+        f"{base_url.rstrip('/')}/compare-rpt",
+        json={"item": item},
+        headers=_auth_headers(),
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()["result"]

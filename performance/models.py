@@ -134,7 +134,14 @@ class RFPComparisonResult(models.Model):
     - 비교 시점: 프론트의 "비교 분석" 버튼 클릭
     - 새 비교를 실행할 때마다 이전 결과는 삭제하고 최신 1건만 유지
     """
- 
+
+    STATUS_CHOICES = [
+        ('idle',       '대기'),
+        ('processing', '분석중'),
+        ('done',       '완료'),
+        ('failed',     '실패'),
+    ]
+
     performance = models.ForeignKey(
         'Performance',
         on_delete=models.CASCADE,
@@ -156,6 +163,10 @@ class RFPComparisonResult(models.Model):
     # 비교 분석 JSON
     # {"overall_score": 85, "summary": "...", "satisfied": [...], "partial": [...], "unsatisfied": [...]}
     comparison_json = models.JSONField(default=dict)
+    status = models.CharField('분석 상태', max_length=20, choices=STATUS_CHOICES, default='idle')
+    task_id = models.CharField('Celery task id', max_length=255, blank=True, default='')
+    started_at = models.DateTimeField('분석 시작 시각', null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
  
     class Meta:
@@ -244,6 +255,14 @@ class PEPFinalComparisonResult(models.Model):
     - 비교 시점: QA 검수(1단계) 완료 후 "그대로 진행" 클릭
     - 새 비교를 실행할 때마다 이전 결과는 삭제하고 최신 1건만 유지
     """
+    
+    STATUS_CHOICES = [
+        ('idle',       '대기'),
+        ('processing', '분석중'),
+        ('done',       '완료'),
+        ('failed',     '실패'),
+    ]
+
 
     performance = models.ForeignKey(
         'Performance',
@@ -264,6 +283,10 @@ class PEPFinalComparisonResult(models.Model):
     )
     # 비교 분석 JSON (RFPComparisonResult.comparison_json과 같은 형식)
     comparison_json = models.JSONField(default=dict)
+    status = models.CharField('분석 상태', max_length=20, choices=STATUS_CHOICES, default='idle')
+    task_id = models.CharField('Celery task id', max_length=255, blank=True, default='')
+    started_at = models.DateTimeField('분석 시작 시각', null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
