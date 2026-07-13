@@ -28,8 +28,13 @@ jobs:
       - name: Zip source
         run: zip -r deploy.zip . -x "*.git*" -x ".env"
 
+      - name: Compute checksum
+        run: sha256sum deploy.zip > deploy.zip.sha256
+
       - name: Upload to S3
-        run: aws s3 cp deploy.zip s3://workit-documents-skn26/deploy/deploy.zip
+        run: |
+          aws s3 cp deploy.zip s3://workit-documents-skn26/deploy/deploy.zip
+          aws s3 cp deploy.zip.sha256 s3://workit-documents-skn26/deploy/deploy.zip.sha256
 
       - name: Check if  requirements-server.txt changed
         id: req_check
@@ -53,7 +58,10 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --timeout-seconds 600 \
             --parameters "{\"commands\":[
+              \"set -e\",
               \"aws s3 cp s3://workit-documents-skn26/deploy/deploy.zip /home/ubuntu/deploy.zip\",
+              \"aws s3 cp s3://workit-documents-skn26/deploy/deploy.zip.sha256 /home/ubuntu/deploy.zip.sha256\",
+              \"cd /home/ubuntu && sha256sum -c deploy.zip.sha256\",
               \"cd /home/ubuntu && unzip -o deploy.zip -d Workit\",
               \"$PIP_CMD\",
               \"cd /home/ubuntu/Workit && /home/ubuntu/Workit/venv/bin/python manage.py migrate --noinput\",
