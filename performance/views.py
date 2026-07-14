@@ -713,10 +713,14 @@ def deliverable_ai_analyze(request, del_id):
             return JsonResponse({'status': 'error', 'message': '파일이 없습니다.'}, status=400)
 
         from .tech_apply_checker import check_tech_apply
+        from .models import AIPerfLog
         from contracts.utils import local_copy
         try:
-            with local_copy(d.file) as _local:
-                result = check_tech_apply(_local)
+            with AIPerfLog.track('tech_apply_check', deliverable_id=del_id) as ctx:
+                with local_copy(d.file) as _local:
+                    result = check_tech_apply(_local)
+                ctx['total'] = result['total']
+                ctx['error_count'] = result['error_count']
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': f'분석 중 오류가 발생했습니다: {e}'}, status=400)
 

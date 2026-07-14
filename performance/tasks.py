@@ -266,7 +266,7 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
 
     LLM_SERVER_URL이 설정돼 있으면 RunPod 원격 추론, 없으면 로컬 CPU로 폴백한다.
     """
-    from performance.models import Performance, ExecutionPlanParsedData, RFPComparisonResult
+    from performance.models import Performance, ExecutionPlanParsedData, RFPComparisonResult, AIPerfLog
     from contracts.models import RFPParsedData
     from performance.parsers import compare_rfp_and_pep, collect_llm_compare_items_rfp_pep, merge_llm_verdicts
 
@@ -302,41 +302,44 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
     # ── 구조적 비교 + LLM 판정 ─────────────────────────────────────────────
 
     try:
-        comparison_json = compare_rfp_and_pep(rfp_parsed.parsed_json, pep_parsed.parsed_json)
+        with AIPerfLog.track('kickoff_analyze', performance_id=performance_id) as ctx:
+            comparison_json = compare_rfp_and_pep(rfp_parsed.parsed_json, pep_parsed.parsed_json)
 
-        if not comparison_json.get('project_mismatch'):
-            items = collect_llm_compare_items_rfp_pep(rfp_parsed.parsed_json, pep_parsed.parsed_json)
-            total = len(items)
-            llm_results = {}
-            predict_fn = _get_pep_predictor()
+            if not comparison_json.get('project_mismatch'):
+                items = collect_llm_compare_items_rfp_pep(rfp_parsed.parsed_json, pep_parsed.parsed_json)
+                total = len(items)
+                llm_results = {}
+                predict_fn = _get_pep_predictor()
 
-            for i, item in enumerate(items):
-                result = predict_fn(item)
-                llm_results[item['rfp_code']] = {
-                    'description': item['description'],
-                    'required': item['required'],
-                    'label': result.get('label'),
-                    'eval': result.get('eval'),
-                }
-                self.update_state(state='PROGRESS', meta={'current': i + 1, 'total': total})
+                for i, item in enumerate(items):
+                    result = predict_fn(item)
+                    llm_results[item['rfp_code']] = {
+                        'description': item['description'],
+                        'required': item['required'],
+                        'label': result.get('label'),
+                        'eval': result.get('eval'),
+                    }
+                    self.update_state(state='PROGRESS', meta={'current': i + 1, 'total': total})
 
-            comparison_json = merge_llm_verdicts(comparison_json, llm_results, 'rfp_code')
+                comparison_json = merge_llm_verdicts(comparison_json, llm_results, 'rfp_code')
 
-        RFPComparisonResult.objects.update_or_create(
-            performance=performance,
-            defaults={
-                'rfp_parsed': rfp_parsed,
-                'execution_plan_parsed': pep_parsed,
-                'comparison_json': comparison_json,
-                'status': 'done',
-            },
-        )
+            ctx['item_count'] = len(comparison_json.get('satisfied', [])) + len(comparison_json.get('partial', [])) + len(comparison_json.get('unsatisfied', []))
 
-        print(
-            f'[compare_rfp_execution_plan_task] 완료 — performance_id={performance_id}, '
-            f'충족={comparison_json.get("satisfied_count")} 검토={comparison_json.get("partial_count")} '
-            f'불가={comparison_json.get("unsatisfied_count")}'
-        )
+            RFPComparisonResult.objects.update_or_create(
+                performance=performance,
+                defaults={
+                    'rfp_parsed': rfp_parsed,
+                    'execution_plan_parsed': pep_parsed,
+                    'comparison_json': comparison_json,
+                    'status': 'done',
+                },
+            )
+
+            print(
+                f'[compare_rfp_execution_plan_task] 완료 — performance_id={performance_id}, '
+                f'충족={comparison_json.get("satisfied_count")} 검토={comparison_json.get("partial_count")} '
+                f'불가={comparison_json.get("unsatisfied_count")}'
+            )
         return {'status': 'ok', 'performance_id': performance_id}
 
     except Exception as exc:
@@ -477,7 +480,7 @@ def compare_pep_final_report_task(self, performance_id: int):
     compare_rfp_execution_plan_task와 동일한 2단계 구조: 구조적 비교 → LLM(RPT 태스크) 판정.
     PEP·RPT는 같은 이행 건에 속한 문서라 project_mismatch 체크는 필요 없다.
     """
-    from performance.models import Performance, ExecutionPlanParsedData, FinalReportParsedData, PEPFinalComparisonResult
+    from performance.models import Performance, ExecutionPlanParsedData, FinalReportParsedData, PEPFinalComparisonResult, AIPerfLog
     from performance.parsers import compare_pep_and_final, collect_llm_compare_items_pep_rpt, merge_llm_verdicts
 
     performance = Performance.objects.select_related('contract').get(pk=performance_id)
@@ -517,40 +520,42 @@ def compare_pep_final_report_task(self, performance_id: int):
     # ── 구조적 비교 + LLM 판정 ─────────────────────────────────────────────
 
     try:
-        comparison_json = compare_pep_and_final(pep_parsed.parsed_json, final_parsed.parsed_json)
+        with AIPerfLog.track('final_analyze', performance_id=performance_id) as ctx:
+            comparison_json = compare_pep_and_final(pep_parsed.parsed_json, final_parsed.parsed_json)
 
-        items = collect_llm_compare_items_pep_rpt(pep_parsed.parsed_json, final_parsed.parsed_json)
-        total = len(items)
-        llm_results = {}
-        predict_fn = _get_rpt_predictor()
+            items = collect_llm_compare_items_pep_rpt(pep_parsed.parsed_json, final_parsed.parsed_json)
+            total = len(items)
+            llm_results = {}
+            predict_fn = _get_rpt_predictor()
 
-        for i, item in enumerate(items):
-            result = predict_fn(item)
-            llm_results[item['pep_code']] = {
-                'description': item['description'],
-                'required': item['required'],
-                'label': result.get('label'),
-                'eval': result.get('eval'),
-            }
-            self.update_state(state='PROGRESS', meta={'current': i + 1, 'total': total})
+            for i, item in enumerate(items):
+                result = predict_fn(item)
+                llm_results[item['pep_code']] = {
+                    'description': item['description'],
+                    'required': item['required'],
+                    'label': result.get('label'),
+                    'eval': result.get('eval'),
+                }
+                self.update_state(state='PROGRESS', meta={'current': i + 1, 'total': total})
 
-        comparison_json = merge_llm_verdicts(comparison_json, llm_results, 'pep_code')
+            comparison_json = merge_llm_verdicts(comparison_json, llm_results, 'pep_code')
+            ctx['item_count'] = total
 
-        PEPFinalComparisonResult.objects.update_or_create(
-            performance=performance,
-            defaults={
-                'execution_plan_parsed': pep_parsed,
-                'final_report_parsed': final_parsed,
-                'comparison_json': comparison_json,
-                'status': 'done',
-            },
-        )
+            PEPFinalComparisonResult.objects.update_or_create(
+                performance=performance,
+                defaults={
+                    'execution_plan_parsed': pep_parsed,
+                    'final_report_parsed': final_parsed,
+                    'comparison_json': comparison_json,
+                    'status': 'done',
+                },
+            )
 
-        print(
-            f'[compare_pep_final_report_task] 완료 — performance_id={performance_id}, '
-            f'충족={comparison_json.get("satisfied_count")} 검토={comparison_json.get("partial_count")} '
-            f'불가={comparison_json.get("unsatisfied_count")}'
-        )
+            print(
+                f'[compare_pep_final_report_task] 완료 — performance_id={performance_id}, '
+                f'충족={comparison_json.get("satisfied_count")} 검토={comparison_json.get("partial_count")} '
+                f'불가={comparison_json.get("unsatisfied_count")}'
+            )
         return {'status': 'ok', 'performance_id': performance_id}
 
     except Exception as exc:

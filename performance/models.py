@@ -1,5 +1,9 @@
+import time
+from contextlib import contextmanager
+
 from django.db import models
-from contracts.models import Contract
+from django.utils import timezone
+from contracts.models import Contract, ContractDocument
 from django.contrib.auth import get_user_model
 
 
@@ -347,3 +351,80 @@ class AIAnalysisLog(models.Model):
             detail=detail or {},
             user=user,
         )
+
+
+class AIPerfLog(models.Model):
+    """
+    AI 분석 기능별 처리 시간 측정 기록 (테스트보고서용, system admin 전용 데이터).
+
+    실행할 때마다 한 행씩 쌓인다 — 계약/이행 건당 하나가 아니라, 분석을 돌린
+    횟수만큼 생긴다. 그래야 기능별 평균/최대 응답시간을 집계할 수 있다.
+    """
+
+    FEATURE_CHOICES = [
+        ('contract_review', '계약서 AI분석'),
+        ('kickoff_analyze', '과업수행계획서 AI분석'),
+        ('tech_apply_check', '기술적용결과표 검토'),
+        ('final_analyze', '사업추진결과보고서 AI분석'),
+    ]
+
+    feature = models.CharField('기능', max_length=30, choices=FEATURE_CHOICES)
+    started_at = models.DateTimeField('시작 시각')
+    finished_at = models.DateTimeField('종료 시각')
+    duration_seconds = models.FloatField('소요 시간(초)')
+    success = models.BooleanField('성공 여부', default=True)
+
+    # 기능마다 대상 테이블이 달라서 컬럼을 나눴다 — 한 행엔 해당 기능에 맞는
+    # 것 하나만 채워지고 나머지는 비어있다. SQL에서 바로 JOIN해서 조회할 수 있다.
+    contract_document = models.ForeignKey(ContractDocument, on_delete=models.SET_NULL, null=True, blank=True)
+    performance = models.ForeignKey(Performance, on_delete=models.SET_NULL, null=True, blank=True)
+    deliverable = models.ForeignKey('Deliverable', on_delete=models.SET_NULL, null=True, blank=True)
+
+    context = models.JSONField('부가 정보', default=dict, blank=True)  # 페이지수·항목수 등 숫자 정보만
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'AI 처리 성능 로그'
+        verbose_name_plural = 'AI 처리 성능 로그 목록'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'[{self.get_feature_display()}] {self.duration_seconds:.1f}s ({self.created_at:%Y-%m-%d %H:%M})'
+
+    @classmethod
+    @contextmanager
+    def track(cls, feature, context=None, **target):
+        """
+        측정 대상 코드를 감싸서 시간을 재고 결과를 남긴다.
+
+        사용 예: with AIPerfLog.track('contract_review', contract_document_id=doc.id) as ctx:
+                     ...분석 코드...
+                     ctx['legal_issue_count'] = len(legal_issues)  # 필요하면 부가 정보 채우기
+        target은 contract_document_id / performance_id / deliverable_id 중 해당하는 것만 넘기면 된다.
+        예외가 나면 success=False로 남기고 그대로 다시 raise한다(측정 때문에 원래 에러를 숨기지 않음).
+        """
+        started_at = timezone.now()
+        t0 = time.monotonic()
+        ctx = context if context is not None else {}
+        success = True
+        try:
+            yield ctx
+        except Exception:
+            success = False
+            raise
+        finally:
+            # 측정 기록 저장은 부가 기능이라, 여기서 실패해도(테이블 누락 등)
+            # 측정 대상이던 원래 작업의 성공/실패 결과를 절대 덮어써선 안 된다.
+            try:
+                cls.objects.create(
+                    feature=feature,
+                    started_at=started_at,
+                    finished_at=timezone.now(),
+                    duration_seconds=time.monotonic() - t0,
+                    success=success,
+                    context=ctx,
+                    **target,
+                )
+            except Exception:
+                import traceback
+                print(f'[AIPerfLog.track] 성능 로그 저장 실패 (feature={feature}):\n{traceback.format_exc()}')
