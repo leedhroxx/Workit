@@ -91,10 +91,10 @@ def performance_list(request):
     return render(request, 'performance/performance_list.html', {
         'performances': performances,
         'calendar_events_json': json.dumps(calendar_events, ensure_ascii=False),
-        'project_colors': {
+        'project_colors_json': json.dumps({
             perf.id: PROJECT_COLORS[perf.contract_id % len(PROJECT_COLORS)]
             for perf in performances
-        },
+        }, ensure_ascii=False),
 })
 
 
