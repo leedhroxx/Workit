@@ -23,6 +23,7 @@ Point id는 chunk_id 해시값(결정론적) — 배열 순서 아님, 매칭은
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -62,11 +63,14 @@ DATASETS = {
 }
 
 # 임베딩에 쓴 payload 필드 (text는 인덱싱만 하고 payload에도 남겨서 리랭크/표시에 사용)
+# article_number 제거 (2026-07-14, 재확정) — article_id와 jo/ho 전수 100% 일치하는 중복 필드.
+# jihye_inference.py / pdfver_yoonha_contract_rag.py는 참조하지만 미사용 파일이라 무관.
+# eval 스크립트에서 article_number를 쓰는 부분은 별도로 article_id 참조로 수정 예정
+# (담당: 전윤하) — 이 코드 반영 전에 eval 쪽 수정이 먼저 들어가 있어야 함.
 PAYLOAD_FIELDS = [
     "chunk_id",
     "law_name",
     "article_id",
-    "article_number",
     "title",
     "text",
     "hierarchy",
@@ -78,8 +82,16 @@ PAYLOAD_FIELDS = [
 
 
 def chunk_id_to_point_id(chunk_id: str) -> int:
-    """chunk_id -> 결정론적 정수 id. Qdrant point id는 int/UUID만 허용."""
-    return abs(hash(chunk_id)) % (2**63)
+    """chunk_id -> 결정론적 정수 id. Qdrant point id는 int/UUID만 허용.
+
+    hashlib.sha256 기반 — 내장 hash()와 달리 PYTHONHASHSEED 영향을 받지 않아
+    실행 시점/환경이 달라져도 같은 chunk_id는 항상 같은 값을 반환한다.
+    % (2**63)로 signed 64-bit 정수 범위 안으로 제한 (일부 클라이언트가 unsigned
+    64-bit를 signed로 잘못 해석해 오버플로/음수 에러를 낼 수 있어 원래 코드의
+    범위 제한 관례를 그대로 유지).
+    """
+    digest = hashlib.sha256(chunk_id.encode("utf-8")).hexdigest()
+    return int(digest, 16) % (2**63)
 
 
 def load_chunks_by_id(path: Path) -> dict[str, dict]:
