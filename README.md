@@ -85,7 +85,7 @@ Frontend
    ↓
 Django Backend (accounts / contracts / performance)
    ↓
-문서 파싱 (PDF·DOCX·HWP)
+문서 파싱 (PDF·HWP)
    ↓
 Qdrant RAG (법령 조문 검색)
    ↓
