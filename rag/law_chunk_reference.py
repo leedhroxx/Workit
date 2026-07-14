@@ -42,7 +42,7 @@ from docx import Document
 # 경로 설정
 # ─────────────────────────────────────────
 LAW_DIR = Path("C:/project/Workit/data/law")
-OUTPUT_DIR = Path("C:/project/Workit/data/structured_fixedid")
+OUTPUT_DIR = Path("C:/project/Workit/data/structured_ho")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -26,7 +26,7 @@ chunk_id 규칙:
     5토큰으로 서로 길이가 달라도 이 방식으로 문제없이 매칭된다).
 
 input : C:/project/Workit/data/law/ 내 docx 파일
-output: C:/project/Workit/data/structured_jo_fixedid/ 내 JSON 파일
+output: C:/project/Workit/data/structured_jo/ 내 JSON 파일
 
 사용법:
     pip install python-docx
@@ -43,7 +43,7 @@ from docx import Document
 # 경로 설정
 # ─────────────────────────────────────────
 LAW_DIR = Path("C:/project/Workit/data/law")
-OUTPUT_DIR = Path("C:/project/Workit/data/structured_jo_fixedid")
+OUTPUT_DIR = Path("C:/project/Workit/data/structured_jo")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

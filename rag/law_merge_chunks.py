@@ -5,8 +5,8 @@ Workit - 법령 chunk JSON 폴더 통합 스크립트
 "articles" 리스트를 뽑아서, 폴더 하나당 flat한 chunk 리스트 파일 하나로 합친다.
 (chunks_ho.json / chunks_jo.json 처럼 Colab 노트북에 바로 업로드할 수 있는 형태)
 
-input : 아래 FOLDERS에 지정된 4개 폴더
-output: OUTPUT_DIR 안에 폴더당 파일 1개씩, 총 4개
+input : 아래 FOLDERS에 지정된 2개 폴더
+output: OUTPUT_DIR 안에 폴더당 파일 1개씩, 총 2개
 
 사용법:
     python law_merge_chunks.py
@@ -16,11 +16,12 @@ import json
 from pathlib import Path
 
 # 폴더 경로 → 출력 파일명
+# fixedid 접미사 제거하면서 예전 legacy 폴더(structured_jo_fixedid/structured_fixedid)
+# 항목은 삭제하고, 새 폴더명(structured_jo/structured_ho, law_chunk_article.py /
+# law_chunk_reference.py의 OUTPUT_DIR과 동일)만 남김. 4개 -> 2개로 정리됨.
 FOLDERS: dict[Path, str] = {
     Path("C:/project/Workit/data/structured_jo"): "chunks_jo.json",
-    Path("C:/project/Workit/data/structured_jo_fixedid"): "chunks_jo_fixedid.json",
-    Path("C:/project/Workit/data/structured"): "chunks_ho.json",
-    Path("C:/project/Workit/data/structured_fixedid"): "chunks_ho_fixedid.json",
+    Path("C:/project/Workit/data/structured_ho"): "chunks_ho.json",
 }
 
 OUTPUT_DIR = Path("C:/project/Workit/data/merged")
