@@ -14,14 +14,14 @@
 from django.core.exceptions import ValidationError
 
 # 확장자 → 허용되는 Content-Type 목록 (브라우저/OS별로 다르게 보낼 수 있어 여러 개 허용)
+#
+# pdf/hwp만 허용한다 — contracts/utils.py의 extract_text()가 이 두 형식만 정확하게
+# 텍스트를 뽑아낸다. docx는 python-docx가 표(table) 안 내용을 못 읽어서 표 위주
+# 섹션이 누락되고, doc/hwpx/xlsx/xls는 extract_text()에 처리 분기 자체가 없어
+# 빈 문자열이 반환되어 "텍스트 추출 실패"로 곧바로 실패한다.
 ALLOWED_UPLOAD_TYPES = {
     "pdf": {"application/pdf"},
-    "docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
-    "doc": {"application/msword"},
     "hwp": {"application/x-hwp", "application/haansofthwp", "application/octet-stream"},
-    "hwpx": {"application/haansofthwpx", "application/zip", "application/octet-stream"},
-    "xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-    "xls": {"application/vnd.ms-excel"},
 }
 
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024  # 50MB — 프런트 업로드 안내 문구와 동일하게 맞춤

@@ -37,11 +37,19 @@ def local_copy(filefield):
 
 
 def extract_text(file_path: str) -> str:
-    """업로드된 파일 경로를 받아 텍스트 문자열 반환."""
+    """업로드된 파일 경로를 받아 텍스트 문자열 반환. pdf/hwp만 지원한다.
+
+    accounts.file_validators.ALLOWED_UPLOAD_TYPES가 업로드 시점에 pdf/hwp만
+    통과시키므로, 여기 도달하는 파일은 항상 이 둘 중 하나여야 한다. 예전엔
+    docx/txt/md/hwpx도 처리했지만, docx는 python-docx가 표(table) 안 내용을
+    읽지 못해 표 위주 섹션이 통째로 누락되고 doc/hwpx/xlsx/xls는 애초에
+    처리 분기가 없어 빈 문자열만 반환되는 등 실제로는 안전하게 동작하지
+    않아 업로드 자체를 막았다.
+    """
     ext = file_path.lower().rsplit('.', 1)[-1]
 
     if ext == 'hwp':
-        # 구형 HWP는 pdfplumber/docx로 직접 못 읽으므로
+        # 구형 HWP는 pdfplumber로 직접 못 읽으므로
         # LibreOffice(H2Orestart 확장)로 PDF 변환 후 같은 함수에 재귀 호출해 처리한다.
         import sys
         import os
@@ -67,18 +75,7 @@ def extract_text(file_path: str) -> str:
                     texts.append(t)
         return '\n'.join(texts)
 
-    elif ext == 'docx':
-        from docx import Document
-        doc = Document(file_path)
-        return '\n'.join(p.text for p in doc.paragraphs if p.text.strip())
-
-    elif ext in ('txt', 'md', 'hwpx'):
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-
-    else:
-        # 지원하지 않는 형식 — 빈 문자열 반환, 호출부에서 처리
-        return ''
+    raise ValueError(f"지원하지 않는 파일 형식입니다 (.{ext}). pdf/hwp만 지원합니다.")
 
 
 def parse_to_workit(inference_results: list) -> dict:
