@@ -329,7 +329,8 @@ input, textarea { font-family: inherit; font-size: inherit; }
 /* ── Performance Layout ── */
 .performance-layout { display: grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start }
 .perf-calendar-card { }
-.perf-list-card { }
+.perf-list-card { display: flex; flex-direction: column; }
+.perf-list-card .card-header { margin-bottom: 8px; }
 .cal-tooltip { position: fixed; background: #1E1B4B; color: #fff; border-radius: 8px; padding: 8px 12px; font-size: 12px; pointer-events: none; display: none; z-index: 9999; line-height: 1.5; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
 
 /* ── Performance Calendar (table + 바 스타일) ── */
@@ -360,8 +361,7 @@ input, textarea { font-family: inherit; font-size: inherit; }
   display: inline-flex; width: 24px; height: 24px;
   align-items: center; justify-content: center; font-size: 13px;
 }
-/* "오늘" 표시는 숫자를 감싸는 원(배경 채움) — 아래 산출물 점과는 위치·형태가
-   달라서 헷갈리지 않는다 (점은 숫자 밑에 별도로 찍힘). */
+/* "오늘" 표시는 숫자를 감싸는 원(배경 채움) — 아래 산출물 점과는 위치·형태가 달라서 헷갈리지 않는다 (점은 숫자 밑에 별도로 찍힘). */
 .cal-day-num.today-num {
   background: var(--primary); color: #fff;
   border-radius: 50%; font-weight: 700;
@@ -391,8 +391,8 @@ input, textarea { font-family: inherit; font-size: inherit; }
 .legend-dot { font-size: 12px; line-height: 1; flex-shrink: 0; }
 
 /* Performance List */
-.perf-list { display: flex; flex-direction: column; gap: 8px; }
-.perf-item { display: flex; border-radius: var(--radius-sm); border: 1px solid var(--border); overflow: hidden; cursor: pointer; transition: box-shadow var(--transition); }
+.perf-list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.perf-item { display: flex; flex-shrink: 0; border-radius: var(--radius-sm); border: 1px solid var(--border); overflow: hidden; cursor: pointer; transition: box-shadow var(--transition); }
 .perf-item:hover { box-shadow: var(--shadow-md); }
 .perf-item-accent { width: 4px; flex-shrink: 0; }
 .perf-item-body { flex: 1; padding: 12px 14px; }

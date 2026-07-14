@@ -143,6 +143,7 @@
 {% block extra_js %}
 <script>
 const CALENDAR_EVENTS = {{ calendar_events_json|safe }};
+const PROJECT_COLORS_MAP = {{ project_colors_json|safe }};
 let currentPerfId = null;
 
 // ── Calendar ──
@@ -209,7 +210,19 @@ let currentPerfId = null;
     el.innerHTML = html;
     renderLegend();
     applyAccentColors();
+    syncListCardHeight();
   }
+
+  // "이행 현황" 카드 높이를 달력 카드 높이에 맞춘다.
+  // 달력 쪽 높이를 직접 재서 리스트 카드에 강제로 지정하고, 넘치는 항목은 리스트 내부에서만 스크롤되게 한다.
+  function syncListCardHeight() {
+    const calCard = document.querySelector('.perf-calendar-card');
+    const listCard = document.querySelector('.perf-list-card');
+    if (calCard && listCard) {
+      listCard.style.height = calCard.getBoundingClientRect().height + 'px';
+    }
+  }
+  window.addEventListener('resize', syncListCardHeight);
 
   function renderLegend() {
     const leg = document.getElementById('calendarLegend');
@@ -219,14 +232,15 @@ let currentPerfId = null;
     }
   }
 
+  // 접근 바 색상은 프로젝트별로 고정된 색(PROJECT_COLORS_MAP)을 그대로 쓴다.
   function applyAccentColors() {
-    CALENDAR_EVENTS.forEach(ev => {
-        const accent = document.getElementById(`perf-accent-${ev.performance_id}`);
+    Object.keys(PROJECT_COLORS_MAP).forEach(perfId => {
+        const accent = document.getElementById(`perf-accent-${perfId}`);
         if (accent) {
-            accent.style.background = ev.color;
+            accent.style.background = PROJECT_COLORS_MAP[perfId];
         }
     });
-  }  
+  }
 
   window.calPrev = () => { month--; if (month<0){month=11;year--;} render(); };
   window.calNext = () => { month++; if (month>11){month=0;year++;} render(); };
@@ -437,13 +451,25 @@ let __openDatePicker = null;
 function closeCustomDatePicker() {
     if (__openDatePicker) {
         __openDatePicker.el.remove();
-        document.removeEventListener('click', __outsideDatePickerClick);
+        document.removeEventListener('click', __outsideDatePickerClick, true);
+        document.removeEventListener('keydown', __escDatePickerClose, true);
         __openDatePicker = null;
     }
 }
 
+// 캡처 단계에서 먼저 가로채서 stopPropagation() 한다
+// 캡처 단계는 등록 순서와 무관하게 버블 리스너보다 항상 먼저 실행되므로, 여기서 막으면 모달 쪽 리스너로는 아예 전달되지 않는다.
 function __outsideDatePickerClick(e) {
     if (__openDatePicker && !__openDatePicker.el.contains(e.target)) {
+        e.stopPropagation();
+        closeCustomDatePicker();
+    }
+}
+
+// Esc도 같은 이유로 캡처 단계에서 먼저 처리 — 달력이 열려있으면 Esc 한 번은 달력만 닫고, 모달은 그대로 둔다(다시 Esc를 누르면 그때 모달이 닫힌다).
+function __escDatePickerClose(e) {
+    if (e.key === 'Escape' && __openDatePicker) {
+        e.stopPropagation();
         closeCustomDatePicker();
     }
 }
@@ -503,7 +529,8 @@ window.toggleCustomDatePicker = function(evt, btnEl) {
         const cells = [];
         for (let i = 0; i < firstDow; i++) cells.push(new Date(year, month, i - firstDow + 1));
         for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
-        while (cells.length % 7 !== 0) {
+        // 항상 6주(42칸)로 고정
+        while (cells.length < 42) {
             const last = cells[cells.length - 1];
             cells.push(new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1));
         }
@@ -553,7 +580,7 @@ window.toggleCustomDatePicker = function(evt, btnEl) {
             pick(todayKey);
         });
 
-        positionPicker(); // 주(週) 수가 달라지면 팝업 높이도 바뀌므로 매 렌더링마다 재계산
+        positionPicker(); // 항상 6주 고정이라 높이가 안 바뀌지만, 최초 오픈 시 위치 계산을 위해 유지
     }
 
     // 마우스 휠로 월 이동 — 직접 그린 달력이라 헤더·날짜 칸이 항상 같이 갱신된다.
@@ -566,7 +593,8 @@ window.toggleCustomDatePicker = function(evt, btnEl) {
     }, { passive: false });
 
     render();
-    document.addEventListener('click', __outsideDatePickerClick);
+    document.addEventListener('click', __outsideDatePickerClick, true);
+    document.addEventListener('keydown', __escDatePickerClose, true);
 };
 
 function saveDueDate(perfId, deliverableType, dueDate) {
