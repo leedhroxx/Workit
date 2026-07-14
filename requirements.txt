@@ -1,6 +1,8 @@
 # Django
 Django==6.0.5
 argon2-cffi
+boto3
+django-storages
 
 # AI / ML
 # torch/transformers/peft/FlagEmbedding은 로컬 CPU로 직접 추론할 때만 필요하다.

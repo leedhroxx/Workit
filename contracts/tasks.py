@@ -62,8 +62,11 @@ def _chunk_contract(text: str) -> list[dict]:
 @shared_task(bind=True)
 def analyze_document_task(self, doc_id):
     """AI 분석 비동기 태스크"""
+    import time
+    from django.utils import timezone
     from contracts.models import ContractDocument, AIReviewResult
     from contracts.utils import extract_text, parse_to_workit, local_copy
+    from performance.models import AIPerfLog
 
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for p in [os.path.join(BASE_DIR, 'rag'), os.path.join(BASE_DIR, 'data')]:
@@ -71,6 +74,11 @@ def analyze_document_task(self, doc_id):
             sys.path.insert(0, p)
 
     doc = ContractDocument.objects.get(pk=doc_id)
+    # 함수 전체(빈칸검사+LLM검토)가 내부 try/except로 이미 감싸여 있어서 예외가
+    # 밖으로 나오지 않는다 — AIPerfLog.track()의 with 블록 대신, 시작 시각만
+    # 재뒀다가 맨 끝에서 한 번 기록한다.
+    _perf_started_at = timezone.now()
+    _perf_t0 = time.monotonic()
 
     # 1. 계약서 1~2페이지 요약 표(계약 조건 + 계약당사자) 빈칸 검사
     # 규칙 기반이라 LLM과 완전히 무관하게 항상 먼저 실행한다. 
@@ -257,6 +265,21 @@ def analyze_document_task(self, doc_id):
             'status': 'done',
         }
     )
+
+    # 측정 기록 저장 실패(테이블 누락 등)가 이미 끝난 본 분석 결과를 물고 늘어지면 안 되므로 별도로 감싼다.
+    try:
+        AIPerfLog.objects.create(
+            feature='contract_review',
+            started_at=_perf_started_at,
+            finished_at=timezone.now(),
+            duration_seconds=time.monotonic() - _perf_t0,
+            success=True,
+            contract_document_id=doc_id,
+            context={'blank_count': len(blanks), 'typo_count': len(typos), 'legal_issue_count': len(legal_issues)},
+        )
+    except Exception:
+        import traceback
+        print(f'[analyze_document_task] 성능 로그 저장 실패 (doc_id={doc_id}):\n{traceback.format_exc()}')
 
     # 화면을 나가 있어도 분석은 celery worker에서 계속 진행되므로, 완료 시점에
     # 알림을 띄워 사용자가 다시 들어와서 결과를 확인할 수 있게 한다.
