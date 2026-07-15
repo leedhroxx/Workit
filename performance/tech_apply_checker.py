@@ -240,14 +240,23 @@ def check_tech_apply(pdf_path: str) -> dict:
 
     with pdfplumber.open(pdf_path) as pdf:
         for page_no, page in enumerate(pdf.pages, start=1):
+            # pdfplumber가 한 논리적 표를 여러 "표" 객체로 쪼개 인식하는 문서가 있다
+            # (예: 헤더 2행짜리 표 하나 + 데이터 행만 있는 표 여러 개로 분리됨).
+            # 헤더 없는 표를 만나면 같은 페이지에서 직전에 찾은 헤더를 그대로 이어받는다.
+            last_header = None
             for table in page.find_tables(TABLE_SETTINGS):
                 grid = table.extract()
                 header = _find_header_zones(table, grid)
-                if header is None:
+                if header is not None:
+                    last_header = header
+                if last_header is None:
                     continue
-                zones, n_header_rows = header
+                zones, n_header_rows = last_header
+                # 이 표 자체에서 새로 찾은 헤더가 아니라 이어받은 것이면, 이 표 안에는
+                # 헤더 행이 없으므로(전부 데이터 행) 0번 행부터 바로 시작한다.
+                start_row = n_header_rows if header is not None else 0
 
-                for row_i in range(n_header_rows, len(table.rows)):
+                for row_i in range(start_row, len(table.rows)):
                     row = table.rows[row_i]
                     grid_row = grid[row_i] if row_i < len(grid) else []
 
