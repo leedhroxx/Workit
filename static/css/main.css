@@ -329,9 +329,9 @@ input, textarea { font-family: inherit; font-size: inherit; }
 /* ── Performance Layout ── */
 .performance-layout { display: grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start }
 .perf-calendar-card { }
-/* 달력 카드 높이(6주 고정 달력 기준 실측값)에 맞춘 고정 높이 — JS로 매번 재는 대신 값을 박아둬서 달력 쪽 렌더링과 완전히 독립적으로 동작한다.
-   달력 카드 구조(패딩·범례 등)가 크게 바뀌면 이 값도 같이 조정해야 한다. */
-.perf-list-card { display: flex; flex-direction: column; height: 615px; }
+/* 달력 카드 높이와 무관하게, 사업 카드 4개 높이만큼만 고정 노출한다
+   (달력은 5주/6주로 자기 높이가 바뀌므로 더 이상 거기에 맞추지 않음). */
+.perf-list-card { display: flex; flex-direction: column; }
 .perf-list-card .card-header { margin-bottom: 8px; }
 .cal-tooltip { position: fixed; background: #1E1B4B; color: #fff; border-radius: 8px; padding: 8px 12px; font-size: 12px; pointer-events: none; display: none; z-index: 9999; line-height: 1.5; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
 
@@ -393,7 +393,7 @@ input, textarea { font-family: inherit; font-size: inherit; }
 .legend-dot { font-size: 12px; line-height: 1; flex-shrink: 0; }
 
 /* Performance List */
-.perf-list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.perf-list { display: flex; flex-direction: column; gap: 8px; max-height: 456px; overflow-y: auto; padding-right: 4px; }
 .perf-item { display: flex; flex-shrink: 0; border-radius: var(--radius-sm); border: 1px solid var(--border); overflow: hidden; cursor: pointer; transition: box-shadow var(--transition); }
 .perf-item:hover { box-shadow: var(--shadow-md); }
 .perf-item-accent { width: 4px; flex-shrink: 0; }

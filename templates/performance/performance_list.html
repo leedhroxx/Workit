@@ -161,8 +161,9 @@ let currentPerfId = null;
     const cells = [];
     for (let i = 0; i < firstDow; i++) cells.push(null);
     for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-    // 항상 6주(42칸)로 고정
-    while (cells.length < 42) cells.push(null);
+    // 5주/6주 등 그 달의 실제 주 수만큼만 표시 (6주로 억지로 고정하면 5주짜리
+    // 달에서 마지막 줄이 텅 빈 채로 남아 모양이 이상해진다).
+    while (cells.length % 7 !== 0) cells.push(null);
 
     // 이제 남는 이벤트는 전부 하루짜리 산출물 제출일이라(계약 기간 줄은 이행현황 카드로 이동), 여러 날에 걸친 막대 배치(트랙) 계산이 필요 없다 —
     // 그날그날 점으로만 표시하면 되므로 날짜별로 묶어두기만 한다.
