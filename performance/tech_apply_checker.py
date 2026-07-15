@@ -58,6 +58,10 @@ BULLET_O_RE = re.compile(r"^[ㅇoO○ｏ]")
 # 실측: 워드랩 줄간 간격 ~2pt, 별개 항목(IPv4/IPv6 등) 간격 ~30pt.
 LINE_GAP_THRESHOLD = 6.0
 
+# 워드랩 연속 줄(같은 항목의 hanging indent)로 볼 최소 들여쓰기 기준(pt).
+# 이 값 이상 직전 항목 시작 x좌표보다 오른쪽이면, 간격이 넓어도 워드랩으로 본다.
+INDENT_THRESHOLD = 3.0
+
 
 def _normalize(text: str) -> str:
     if not text:
@@ -158,7 +162,7 @@ def _resolve_cell(row, grid_row, zones: dict, key: str):
 
 
 def _text_lines(page, bbox) -> list:
-    """bbox 안의 텍스트를 줄 단위 (top, bottom, text) 리스트로 반환 (빈 줄 제외)."""
+    """bbox 안의 텍스트를 줄 단위 (top, bottom, x0, text) 리스트로 반환 (빈 줄 제외)."""
     if not bbox:
         return []
     x0, top, x1, bottom = bbox
@@ -167,39 +171,50 @@ def _text_lines(page, bbox) -> list:
     if x1 <= x0 or bottom <= top:
         return []
     lines = page.within_bbox((x0, top, x1, bottom)).extract_text_lines() or []
-    return [(ln["top"], ln["bottom"], ln["text"].strip()) for ln in lines if ln["text"].strip()]
+    return [(ln["top"], ln["bottom"], ln["x0"], ln["text"].strip()) for ln in lines if ln["text"].strip()]
 
 
 def _group_logical_lines(raw_lines: list) -> list:
     """
     여러 물리 줄을 논리적 항목 단위로 묶는다. 새 항목은 다음 중 하나일 때 시작된다:
       - '-' 또는 'o/ㅇ'로 시작하는 줄
-      - 직전 줄과의 세로 간격이 LINE_GAP_THRESHOLD를 넘는 줄(불릿 없는 별개 항목)
-    그 외(불릿 없고 간격도 좁은 줄)는 워드랩 연속 줄로 보고 직전 항목에 이어붙인다.
+      - 직전 줄과의 세로 간격이 LINE_GAP_THRESHOLD를 넘으면서, 이 줄이 직전 항목의
+        시작 x좌표보다 더 들여쓰여 있지는 않은 줄(불릿 없는 별개 항목)
+    그 외(불릿 없고, 간격이 좁거나 들여쓰기된 줄)는 워드랩 연속 줄로 보고
+    직전 항목에 이어붙인다.
+
+    간격만으로는 부족한 이유: 워드랩은 보통 줄 간격이 좁지만(제목/본문 폰트 한 줄
+    높이 미만), 문서에 따라 문단 줄간격이 넓게 렌더링돼 LINE_GAP_THRESHOLD를 넘는
+    경우가 있다. 이런 워드랩 줄은 항상 불릿 시작 위치보다 오른쪽으로 들여쓰기되어
+    있으므로(예: "- 상기제품(8종)... 암호기능이" 다음 줄 "내장된 제품"), 들여쓰기
+    여부를 같이 봐야 실제로는 체크된 항목이 둘로 쪼개져 오류(체크 없음)로 잘못
+    잡히는 걸 막을 수 있다. IPv4/IPv6처럼 불릿 없이 나열되는 별개 항목들은 서로
+    같은 왼쪽 여백에서 시작하므로(들여쓰기 아님) 이 판별에 영향받지 않는다.
 
     Returns: [(top, bottom, text, is_group_intro), ...]
         is_group_intro: 'o/ㅇ'로 시작하면서 바로 다음 논리 줄이 '-'로 시작하는
         하위 항목 묶음용 소제목인 경우 True (그 자체는 체크 대상이 아님).
     """
-    groups: list = []
-    for top, bottom, text in raw_lines:
+    groups: list = []  # [top, bottom, base_x0, text]
+    for top, bottom, x0, text in raw_lines:
         gap = (top - groups[-1][1]) if groups else None
+        is_bullet = bool(BULLET_DASH_RE.match(text) or BULLET_O_RE.match(text))
+        indented = bool(groups) and (x0 > groups[-1][2] + INDENT_THRESHOLD)
         starts_new = (
             not groups
-            or BULLET_DASH_RE.match(text)
-            or BULLET_O_RE.match(text)
-            or gap > LINE_GAP_THRESHOLD
+            or is_bullet
+            or (gap > LINE_GAP_THRESHOLD and not indented)
         )
         if starts_new:
-            groups.append([top, bottom, text])
+            groups.append([top, bottom, x0, text])
         else:
             groups[-1][1] = bottom
-            groups[-1][2] = (groups[-1][2] + ' ' + text).strip()
+            groups[-1][3] = (groups[-1][3] + ' ' + text).strip()
 
     result = []
-    for i, (top, bottom, text) in enumerate(groups):
+    for i, (top, bottom, _x0, text) in enumerate(groups):
         is_o = bool(BULLET_O_RE.match(text))
-        next_is_dash = (i + 1 < len(groups)) and bool(BULLET_DASH_RE.match(groups[i + 1][2]))
+        next_is_dash = (i + 1 < len(groups)) and bool(BULLET_DASH_RE.match(groups[i + 1][3]))
         result.append((top, bottom, text, is_o and next_is_dash))
     return result
 
@@ -252,8 +267,8 @@ def check_tech_apply(pdf_path: str) -> dict:
                 if last_header is None:
                     continue
                 zones, n_header_rows = last_header
-                # 이 표 자체에서 새로 찾은 헤더가 아니라 이어받은 것이면, 이 표 안에는
-                # 헤더 행이 없으므로(전부 데이터 행) 0번 행부터 바로 시작한다.
+                # 이 표 자체에서 새로 찾은 헤더가 아니라 이어받은 것이면, 
+                # 이 표 안에는 헤더 행이 없으므로(전부 데이터 행) 0번 행부터 바로 시작한다.
                 start_row = n_header_rows if header is not None else 0
 
                 for row_i in range(start_row, len(table.rows)):
@@ -290,7 +305,7 @@ def check_tech_apply(pdf_path: str) -> dict:
 
                     for colname in CHECKBOX_COLUMNS:
                         mark_bbox, _ = _resolve_cell(row, grid_row, zones, colname)
-                        for mtop, mbottom, _ in _text_lines(page, mark_bbox):
+                        for mtop, mbottom, _mx0, _mtext in _text_lines(page, mark_bbox):
                             idx = _nearest_index((mtop + mbottom) / 2, item_centers)
                             per_item_checked[idx][colname] = True
 
