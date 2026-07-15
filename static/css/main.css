@@ -329,7 +329,9 @@ input, textarea { font-family: inherit; font-size: inherit; }
 /* ── Performance Layout ── */
 .performance-layout { display: grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start }
 .perf-calendar-card { }
-.perf-list-card { display: flex; flex-direction: column; }
+/* 달력 카드 높이(6주 고정 달력 기준 실측값)에 맞춘 고정 높이 — JS로 매번 재는 대신 값을 박아둬서 달력 쪽 렌더링과 완전히 독립적으로 동작한다.
+   달력 카드 구조(패딩·범례 등)가 크게 바뀌면 이 값도 같이 조정해야 한다. */
+.perf-list-card { display: flex; flex-direction: column; height: 615px; }
 .perf-list-card .card-header { margin-bottom: 8px; }
 .cal-tooltip { position: fixed; background: #1E1B4B; color: #fff; border-radius: 8px; padding: 8px 12px; font-size: 12px; pointer-events: none; display: none; z-index: 9999; line-height: 1.5; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
 

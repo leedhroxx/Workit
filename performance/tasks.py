@@ -341,8 +341,7 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
                 f'불가={comparison_json.get("unsatisfied_count")}'
             )
 
-        # 화면을 나가 있어도 분석은 celery worker에서 계속 진행되므로, 완료 시점에
-        # 알림을 띄워 사용자가 다시 들어와서 결과를 확인할 수 있게 한다.
+        # 화면을 나가 있어도 분석은 celery worker에서 계속 진행되므로, 완료 시점에 알림을 띄워 사용자가 다시 들어와서 결과를 확인할 수 있게 한다.
         try:
             from performance.models import Notification
 
@@ -350,7 +349,7 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
             if owner.notification_enabled:
                 Notification.objects.create(
                     user=owner,
-                    message=f'대응 비교 분석이 완료되었습니다: {contract.project_name} 사업수행계획서',
+                    message=f'대응 비교 분석이 완료되었습니다: {contract.project_name} 과업수행계획서',
                     url=f'/performance/deliverable/{execution_plan.id}/analyze/',
                 )
         except Exception:
@@ -478,16 +477,14 @@ def parse_final_report_task(self, deliverable_id: int):
         raise self.retry(exc=exc)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PEP(사업수행계획서) ↔ 사업추진결과보고서 비교 태스크 (구조적 비교, LLM 없음)
-#
+
 # RFP 대비 이행 여부는 PEP 쪽(compare_rfp_execution_plan_task)에서 이미 확인하므로,
 # 여기서는 "계획(PEP)한 대로 실제로 이행됐는지"를 PEP 대비로 비교한다.
-#
+
 # 실행 시점 : QA 검수 결과 확인 후 "그대로 진행" 버튼 클릭
-# 비교 로직  : performance.parsers.compare_pep_and_final (코드 매핑 기반)
-# 결과      : performance.models.PEPFinalComparisonResult.comparison_json (RDS)
-# ─────────────────────────────────────────────────────────────────────────────
+# 비교 로직 : performance.parsers.compare_pep_and_final (코드 매핑 기반)
+# 결과 : performance.models.PEPFinalComparisonResult.comparison_json (RDS)
 
 @shared_task(bind=True, max_retries=1, default_retry_delay=10)
 def compare_pep_final_report_task(self, performance_id: int):
@@ -502,24 +499,24 @@ def compare_pep_final_report_task(self, performance_id: int):
 
     performance = Performance.objects.select_related('contract').get(pk=performance_id)
 
-    # ── 전제 조건 확인 ──────────────────────────────────────────────────────
+    # 전제 조건 확인 
 
     kickoff_doc = performance.deliverables.filter(deliverable_type='kickoff').first()
     if not kickoff_doc:
-        return {'status': 'error', 'message': '사업수행계획서 산출물이 없습니다.'}
+        return {'status': 'error', 'message': '과업수행계획서 산출물이 없습니다.'}
 
     try:
         pep_parsed = kickoff_doc.parsed_data
     except ExecutionPlanParsedData.DoesNotExist:
-        return {'status': 'error', 'message': '사업수행계획서가 아직 파싱되지 않았습니다.'}
+        return {'status': 'error', 'message': '과업수행계획서가 아직 파싱되지 않았습니다.'}
 
     if pep_parsed.parse_status != 'done':
         if pep_parsed.parse_status == 'pending':
-            message = '사업수행계획서가 파일 변경 후 아직 재분석되지 않았습니다. 이행관리에서 사업수행계획서를 먼저 분석해주세요.'
+            message = '과업수행계획서가 파일 변경 후 아직 재분석되지 않았습니다. 이행관리에서 과업수행계획서를 먼저 분석해주세요.'
         elif pep_parsed.parse_status == 'processing':
-            message = '사업수행계획서를 아직 분석 중입니다. 잠시 후 다시 시도해주세요.'
+            message = '과업수행계획서를 아직 분석 중입니다. 잠시 후 다시 시도해주세요.'
         else:
-            message = f'사업수행계획서 파싱 상태: {pep_parsed.parse_status}'
+            message = f'과업수행계획서 파싱 상태: {pep_parsed.parse_status}'
         return {'status': 'error', 'message': message}
 
     final_doc = performance.deliverables.filter(deliverable_type='final').first()

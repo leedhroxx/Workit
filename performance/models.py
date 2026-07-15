@@ -40,7 +40,7 @@ class Performance(models.Model):
 
 class Deliverable(models.Model):
     TYPE_CHOICES = [
-        ('kickoff', '사업수행계획서'),
+        ('kickoff', '과업수행계획서'),
         ('tech_apply',  '기술적용결과표'),
         ('final', '사업추진결과보고서'),
     ]
