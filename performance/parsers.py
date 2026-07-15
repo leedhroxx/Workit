@@ -353,6 +353,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-03-01', 'PEP-03-02'],
         'required': True,
         'description': '사업 목적 및 추진 배경',
+        'criteria': ['완전성'],
     },
     {
         'rfp_code': 'RFP-01-04',
@@ -360,6 +361,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-04-01', 'PEP-04-02', 'PEP-04-03'],
         'required': True,
         'description': '개발 대상 업무 및 환경',
+        'criteria': ['완전성', '정확성'],
     },
     {
         'rfp_code': 'RFP-03-02',
@@ -367,6 +369,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-05-01', 'PEP-05-02'],
         'required': True,
         'description': '사업 추진 체계',
+        'criteria': ['완전성'],
     },
     {
         'rfp_code': 'RFP-03-03',
@@ -374,6 +377,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-08'],
         'required': True,
         'description': '일정 계획',
+        'criteria': ['완전성'],
     },
     {
         'rfp_code': 'RFP-04-04-01',
@@ -381,6 +385,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-04-01', 'PEP-06'],
         'required': True,
         'description': '기능 요구사항 대응 개발 계획',
+        'criteria': ['완전성', '추적성'],
     },
     {
         'rfp_code': 'RFP-04-04-06',
@@ -388,6 +393,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-07', 'PEP-06'],
         'required': False,
         'description': '테스트 계획 및 산출물',
+        'criteria': ['완전성', '추적성'],
     },
     {
         'rfp_code': 'RFP-04-04-07',
@@ -395,6 +401,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-14'],
         'required': True,
         'description': '보안 대책',
+        'criteria': ['완전성', '정확성', '검증가능성'],
     },
     {
         'rfp_code': 'RFP-04-04-08',
@@ -402,6 +409,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-12'],
         'required': False,
         'description': '품질 관리 계획',
+        'criteria': ['완전성', '정확성', '검증가능성'],
     },
     {
         'rfp_code': 'RFP-04-04-09',
@@ -409,6 +417,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-11-01', 'PEP-11-02', 'PEP-11-03', 'PEP-11-04'],
         'required': False,
         'description': '표준화 및 제약사항 준수 계획',
+        'criteria': ['완전성', '검증가능성'],
     },
     {
         'rfp_code': 'RFP-04-04-10',
@@ -416,6 +425,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-09', 'PEP-10'],
         'required': False,
         'description': '인력 및 보고 계획',
+        'criteria': ['완전성'],
     },
     {
         'rfp_code': 'RFP-04-04-11',
@@ -423,6 +433,7 @@ _RFP_TO_PEP_MAPPING: list[dict] = [
         'target_codes': ['PEP-15', 'PEP-13'],
         'required': False,
         'description': '교육 및 위험 관리 계획',
+        'criteria': ['완전성', '정확성', '검증가능성'],
     },
 ]
 
@@ -442,84 +453,98 @@ _PEP_TO_RPT_MAPPING: list[dict] = [
         'target_codes': ['RPT-01-01'],
         'required': True,
         'description': '사업명 이행 확인',
+        'criteria': ['완전성'],
     },
     {
         'pep_code': 'PEP-02',
         'target_codes': ['RPT-01-01'],
         'required': True,
         'description': '사업기간 이행 확인',
+        'criteria': ['완전성', '정확성'],
     },
     {
         'pep_code': 'PEP-04-01',
         'target_codes': ['RPT-02-02'],
         'required': True,
         'description': '개발대상업무 이행 결과',
+        'criteria': ['완전성', '정확성', '추적성'],
     },
     {
         'pep_code': 'PEP-04-02',
         'target_codes': ['RPT-02-03'],
         'required': True,
         'description': '개발 및 운영환경 구축 결과',
+        'criteria': ['완전성', '정확성'],
     },
     {
         'pep_code': 'PEP-05-01',
         'target_codes': ['RPT-01-02'],
         'required': True,
         'description': '총괄추진체계 이행 결과',
+        'criteria': ['완전성'],
     },
     {
         'pep_code': 'PEP-05-02',
         'target_codes': ['RPT-01-02'],
         'required': True,
         'description': '사업자 추진체계 이행 결과',
+        'criteria': ['완전성'],
     },
     {
         'pep_code': 'PEP-06',
         'target_codes': ['RPT-01-03'],
         'required': True,
         'description': '사업추진절차 이행 결과',
+        'criteria': ['완전성', '추적성'],
     },
     {
         'pep_code': 'PEP-07',
         'target_codes': ['RPT-01-04'],
         'required': True,
         'description': '산출물계획 이행 결과',
+        'criteria': ['완전성', '추적성'],
     },
     {
         'pep_code': 'PEP-08',
         'target_codes': ['RPT-01-03'],
         'required': True,
         'description': '일정계획 이행 결과',
+        'criteria': ['완전성', '추적성'],
     },
     {
         'pep_code': 'PEP-11-01',
         'target_codes': ['RPT-02-05'],
         'required': False,
         'description': '표준화 계획 이행 결과',
+        'criteria': ['완전성', '정확성', '검증가능성'],
     },
     {
         'pep_code': 'PEP-12',
         'target_codes': ['RPT-02-08', 'RPT-02-11'],
         'required': False,
         'description': '품질관리계획 이행 결과',
+        'criteria': ['완전성', '정확성', '검증가능성'],
     },
     {
         'pep_code': 'PEP-13',
         'target_codes': ['RPT-01-05'],
         'required': True,
         'description': '위험관리계획 이행 결과',
+        'criteria': ['완전성', '검증가능성'],
     },
     {
         'pep_code': 'PEP-14',
         'target_codes': ['RPT-02-06'],
         'required': True,
         'description': '보안대책 이행 결과',
+        'criteria': ['완전성', '정확성', '검증가능성'],
     },
     {
         'pep_code': 'PEP-15',
         'target_codes': ['RPT-04-07'],
         'required': False,
         'description': '교육계획 이행 결과',
+        'criteria': ['완전성', '정확성'],
     },
 ]
 
@@ -919,6 +944,7 @@ def collect_llm_compare_items_rfp_pep(rfp_json: dict, pep_json: dict) -> list[di
             'rfp_code': rfp_code,
             'description': mapping['description'],
             'required': mapping['required'],
+            'criteria': mapping['criteria'],
             'rfp_excerpt': rfp_section.get('content', ''),
             'pep_excerpt': pep_excerpt,
         })
@@ -943,6 +969,7 @@ def collect_llm_compare_items_pep_rpt(pep_json: dict, rpt_json: dict) -> list[di
             'pep_code': pep_code,
             'description': mapping['description'],
             'required': mapping['required'],
+            'criteria': mapping['criteria'],
             'pep_excerpt': pep_section.get('content', ''),
             'rpt_excerpt': rpt_excerpt,
         })
