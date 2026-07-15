@@ -38,11 +38,18 @@
           <!-- <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> -->
           <span id="reviewCountText">분석 결과 0 건</span>
         </div>
+        {% if already_transferred %}
+        <span style="display:flex; height:36px; align-items:center; gap:6px; white-space:nowrap; flex-shrink:0; font-size:13px; font-weight:600; padding:0 14px; border-radius:8px; background:#f0fdf4; border:1.5px solid #16a34a; color:#16a34a;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>
+          이행관리로 이관 완료
+        </span>
+        {% else %}
         <button class="btn btn-primary btn-sm" id="btnCompleteReview" onclick="completeReview()"
           style="display:none; height:36px; align-items:center; gap:6px; white-space:nowrap; flex-shrink:0; font-size:13px; font-weight:600; padding:0 14px; padding-bottom: 2px; border-radius:8px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="13" height="13"><polyline points="9 18 15 12 9 6"/></svg>
           검토완료 · 이행관리 이관
         </button>
+        {% endif %}
       </div>
     </div>
 
@@ -203,7 +210,8 @@ function renderResults(blanks, typos, legal) {
   const badge = document.getElementById('reviewCountBadge');
   badge.style.display = 'flex';
   document.getElementById('reviewCountText').textContent = `☑️ 분석 결과 ${total} 건`;
-  document.getElementById('btnCompleteReview').style.display = 'flex';
+  const btnCompleteReview = document.getElementById('btnCompleteReview');
+  if (btnCompleteReview) btnCompleteReview.style.display = 'flex';
   document.getElementById('btnDownloadReport').style.display = 'flex';
 
   let html = '';
