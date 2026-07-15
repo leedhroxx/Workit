@@ -96,7 +96,7 @@ def check_deadlines():
                             f"Workit에 접속하여 산출물을 등록해 주세요.\n"
                             f"{SITE_URL}/performance/"
                         ),
-                        from_email=None,           # ← DEFAULT_FROM_EMAIL 사용
+                        from_email=None,              # ← DEFAULT_FROM_EMAIL 사용
                         recipient_list=[user.email],  # ← 각 사용자 이메일로
                         fail_silently=True,
                     )
@@ -104,13 +104,11 @@ def check_deadlines():
                     print(f"[알림] 이메일 발송 실패: {e}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # 과업수행계획서 파싱 태스크 (규칙 기반, LLM 없음)
-#
+
 # 실행 시점 : 과업수행계획서 파일 업로드 직후 비동기
-# 파서      : performance.parsers.parse_execution_plan (키워드·정규식 기반)
-# 결과      : performance.models.ExecutionPlanParsedData.parsed_json (RDS)
-# ─────────────────────────────────────────────────────────────────────────────
+# 파서 : performance.parsers.parse_execution_plan (키워드·정규식 기반)
+# 결과 : performance.models.ExecutionPlanParsedData.parsed_json (RDS)
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=10)
 def parse_execution_plan_task(self, deliverable_id: int):
@@ -146,10 +144,9 @@ def parse_execution_plan_task(self, deliverable_id: int):
         with local_copy(deliverable.file) as _local:
             text = extract_text(_local)
 
-            # 표 안 개별 셀 완전성 검사. qa_agent는 소제목 블록 전체를 하나의
-            # 텍스트로 보기 때문에, 표 안 특정 칸 하나가 비어 있어도 같은
-            # 소제목에 다른 내용이 많으면 통과시켜버린다 — 그 사각지대를
-            # 표 단위로 보완한다. PDF가 아닌 원본(HWP 등)은 건너뛴다.
+            # 표 안 개별 셀 완전성 검사. qa_agent는 소제목 블록 전체를 하나의 텍스트로 보기 때문에, 
+            # 표 안 특정 칸 하나가 비어 있어도 같은 소제목에 다른 내용이 많으면 통과시켜버린다 — 
+            # 그 사각지대를 표 단위로 보완한다. PDF가 아닌 원본(HWP 등)은 건너뛴다.
             sparse_cells = []
             if _local.lower().endswith('.pdf'):
                 try:
@@ -167,8 +164,8 @@ def parse_execution_plan_task(self, deliverable_id: int):
         found_count = sum(1 for s in result_json.values() if s.get('found'))
         total_count = len(result_json)
 
-        # 소제목 매핑 QA 검수 (LLM/qa_agent). 검수 자체가 실패해도 파싱 성공은
-        # 그대로 살려야 하므로 별도 try/except로 감싸고, 실패 시 리포트만 비워둔다.
+        # 소제목 매핑 QA 검수 (LLM/qa_agent). 
+        # 검수 자체가 실패해도 파싱 성공은 그대로 살려야 하므로 별도 try/except로 감싸고, 실패 시 리포트만 비워둔다.
         qa_report = {}
         try:
             from qa_agent.engine import review_section_mapping
@@ -246,13 +243,11 @@ def parse_execution_plan_task(self, deliverable_id: int):
         raise self.retry(exc=exc)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # RFP ↔ 과업수행계획서 비교 태스크 (구조적 비교, LLM 없음)
-#
+
 # 실행 시점 : 비교 버튼 클릭 → rfp_compare view
 # 비교 로직  : performance.parsers.compare_rfp_and_pep (코드 매핑 기반)
-# 결과      : performance.models.RFPComparisonResult.comparison_json (RDS)
-# ─────────────────────────────────────────────────────────────────────────────
+# 결과 : performance.models.RFPComparisonResult.comparison_json (RDS)
 
 @shared_task(bind=True, max_retries=1, default_retry_delay=10)
 def compare_rfp_execution_plan_task(self, performance_id: int):
@@ -273,7 +268,7 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
     performance = Performance.objects.select_related('contract').get(pk=performance_id)
     contract = performance.contract
 
-    # ── 전제 조건 확인 ──────────────────────────────────────────────────────
+    # 전제 조건 확인
 
     rfp_doc = contract.documents.filter(doc_type='rfp').first()
     if not rfp_doc:
@@ -299,7 +294,7 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
     if pep_parsed.parse_status != 'done':
         return {'status': 'error', 'message': f'과업수행계획서 파싱 상태: {pep_parsed.parse_status}'}
 
-    # ── 구조적 비교 + LLM 판정 ─────────────────────────────────────────────
+    # 구조적 비교 + LLM 판정
 
     try:
         with AIPerfLog.track('kickoff_analyze', performance_id=performance_id) as ctx:
@@ -366,13 +361,12 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # 사업추진결과보고서 파싱 태스크 (규칙 기반, LLM 없음)
-#
+
 # 실행 시점 : 산출물 분석 화면에서 "분석 시작" 클릭
-# 파서      : performance.parsers.parse_final_report (키워드·정규식 기반)
-# 결과      : performance.models.FinalReportParsedData.parsed_json (RDS)
-# ─────────────────────────────────────────────────────────────────────────────
+# 파서 : performance.parsers.parse_final_report (키워드·정규식 기반)
+# 결과 : performance.models.FinalReportParsedData.parsed_json (RDS)
+
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=10)
 def parse_final_report_task(self, deliverable_id: int):
@@ -416,8 +410,8 @@ def parse_final_report_task(self, deliverable_id: int):
         found_count = sum(1 for s in result_json.values() if s.get('found'))
         total_count = len(result_json)
 
-        # 소제목 매핑 QA 검수 (LLM/qa_agent). 검수 자체가 실패해도 파싱 성공은
-        # 그대로 살려야 하므로 별도 try/except로 감싸고, 실패 시 리포트만 비워둔다.
+        # 소제목 매핑 QA 검수 (LLM/qa_agent). 
+        # 검수 자체가 실패해도 파싱 성공은 그대로 살려야 하므로 별도 try/except로 감싸고, 실패 시 리포트만 비워둔다.
         qa_report = {}
         try:
             from qa_agent.engine import review_section_mapping
