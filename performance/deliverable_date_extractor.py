@@ -23,6 +23,7 @@ import pdfplumber
 DELIVERABLE_ALIASES = {
     "kickoff": [
         "사업수행계획서",
+        "과업수행계획서",
         "착수보고서",
     ],
     "tech_apply": [

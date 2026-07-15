@@ -74,7 +74,7 @@
       </div>
       {% if has_rfp_qa_step and rfp_doc_id %}
         <div class="doc-source-toggle" id="docSourceToggle">
-          <button type="button" class="doc-source-btn active" data-source="kickoff" onclick="switchDocSource('kickoff')">사업수행계획서</button>
+          <button type="button" class="doc-source-btn active" data-source="kickoff" onclick="switchDocSource('kickoff')">과업수행계획서</button>
           <button type="button" class="doc-source-btn" data-source="rfp" onclick="switchDocSource('rfp')">제안요청서</button>
         </div>
       {% endif %}
@@ -100,14 +100,14 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
           <span id="reviewCountText">보완 0 건</span>
         </div>
-        <span style="margin-left:auto; font-size:11px; color:#999; white-space:nowrap;">평가기준: {% if deliverable.deliverable_type == 'tech_apply' %}기술적용결과표 체크 정합성{% elif is_final %}소제목 매핑 QA · 사업수행계획서 대응 비교{% elif is_kickoff %}사업수행계획서 매핑 · RFP 매핑 · 대응 비교{% elif has_qa_flow %}소제목 매핑 QA · RFP 대응 비교{% endif %}</span>
+        <span style="margin-left:auto; font-size:11px; color:#999; white-space:nowrap;">평가기준: {% if deliverable.deliverable_type == 'tech_apply' %}기술적용결과표 체크 정합성{% elif is_final %}소제목 매핑 QA · 과업수행계획서 대응 비교{% elif is_kickoff %}과업수행계획서 매핑 · RFP 매핑 · 대응 비교{% elif has_qa_flow %}소제목 매핑 QA · RFP 대응 비교{% endif %}</span>
       </div>
     </div>
 
     <div class="review-panel-body" id="reviewBody" style="overflow-y:auto;">
       {% if has_qa_flow %}
-        <!-- 2단계 비교 (kickoff는 RFP, final은 사업수행계획서(PEP)와 비교). 소제목
-             매핑 QA(1단계)는 백그라운드에서만 실행하고 화면에는 노출하지 않는다. -->
+        <!-- 2단계 비교 (kickoff는 RFP, final은 사업수행계획서(PEP)와 비교). 
+         소제목 매핑 QA(1단계)는 백그라운드에서만 실행하고 화면에는 노출하지 않는다. -->
         <div id="qaStep"></div>
       {% elif analyzable %}
         <!-- Initial state -->
@@ -129,7 +129,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </div>
           <h3>분석 준비 중</h3>
-          <p>이 산출물 유형은 아직 평가기준서가<br>준비되지 않아 AI 분석을 지원하지 않습니다.<br><span style="color:#999;font-size:12px;">현재는 사업수행계획서·기술적용결과표·사업추진결과보고서만 지원합니다.</span></p>
+          <p>이 산출물 유형은 아직 평가기준서가<br>준비되지 않아 AI 분석을 지원하지 않습니다.<br><span style="color:#999;font-size:12px;">현재는 과업수행계획서·기술적용결과표·사업추진결과보고서만 지원합니다.</span></p>
         </div>
       {% endif %}
     </div>
@@ -176,10 +176,10 @@ const DEL_ID = {{ deliverable.id }};
 const HAS_QA_FLOW = {{ has_qa_flow|yesno:"true,false" }};
 const IS_FINAL = {{ is_final|yesno:"true,false" }};
 const HAS_RFP_QA_STEP = {{ has_rfp_qa_step|yesno:"true,false" }};  // kickoff 전용 "2단계 · 제안요청서 매핑" 탭
-const RFP_DOC_ID = {{ rfp_doc_id|default_if_none:"null" }};  // 좌측 뷰어에서 제안요청서로 전환할 때 사용
+const RFP_DOC_ID = {{ rfp_doc_id|default_if_none:"null" }};        // 좌측 뷰어에서 제안요청서로 전환할 때 사용
 const DOC_LABEL = "{{ deliverable.get_deliverable_type_display|escapejs }}";
-const COMPARE_TARGET_LABEL = IS_FINAL ? '사업수행계획서' : '제안요청서';
-const COMPARE_TAB_INDEX = HAS_RFP_QA_STEP ? 3 : 2;  // "대응 비교" 탭이 몇 번째인지
+const COMPARE_TARGET_LABEL = IS_FINAL ? '과업수행계획서' : '제안요청서';
+const COMPARE_TAB_INDEX = HAS_RFP_QA_STEP ? 3 : 2;                 // "대응 비교" 탭이 몇 번째인지
 const COMPARE_IS_PROCESSING = {{ compare_is_processing|yesno:"true,false" }};
 const COMPARE_TASK_ID = "{{ compare_task_id|escapejs }}";
 const COMPARE_STALE_MS = {{ compare_stale_minutes }} * 60 * 1000;
@@ -338,7 +338,7 @@ function renderQaTab1Html() {
   const statusClass = report.review_status === 'PASS' ? 'ok' : (report.review_status === 'WARN' ? 'warn' : 'bad');
   const issues = report.issues || [];
   const comments = report.comments || [];
-  const tab1Label = HAS_RFP_QA_STEP ? '사업수행계획서 매핑' : '소제목 매핑 QA';
+  const tab1Label = HAS_RFP_QA_STEP ? '과업수행계획서 매핑' : '소제목 매핑 QA';
 
   let html = `<div class="qa-tab-title">${tab1Label}</div>`;
   html += `<div class="qa-summary qa-summary-2col">

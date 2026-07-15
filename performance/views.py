@@ -29,7 +29,7 @@ COMPARE_STALE_MINUTES = 60
 
 # 산출물 유형별 평가 기준 문서 매핑
 DELIVERABLE_CRITERIA = {
-    'kickoff': '사업수행계획서 품질평가 기준 (16개 목차 항목 × 9개 품질특성)',
+    'kickoff': '과업수행계획서 품질평가 기준 (16개 목차 항목 × 9개 품질특성)',
     'tech_apply': '기술적용결과표 체크박스 정합성 검증 (적용/부분적용/미적용/해당없음 + 사유)',
     'test_plan': None,
     'test_result': None,
@@ -106,7 +106,7 @@ def performance_detail_api(request, pk):
     # Build deliverable list with all 4 types
     TYPE_ORDER = ['kickoff', 'tech_apply', 'final']
     TYPE_LABELS = {
-        'kickoff': '사업수행계획서',
+        'kickoff': '과업수행계획서',
         'tech_apply': '기술적용결과표',
         'final': '사업추진결과보고서',
     }
@@ -428,7 +428,7 @@ def deliverable_parse_qa(request, del_id):
         performance__contract__created_by=request.user,
     )
     if d.deliverable_type not in ('kickoff', 'final'):
-        return JsonResponse({'status': 'error', 'message': '사업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
+        return JsonResponse({'status': 'error', 'message': '과업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
     if not d.file:
         return JsonResponse({'status': 'error', 'message': '파일이 없습니다.'}, status=400)
 
@@ -459,10 +459,9 @@ def deliverable_parse_qa(request, del_id):
 @require_POST
 def deliverable_parse_rfp_qa(request, del_id):
     """
-    사업수행계획서(kickoff) AI 분석 화면의 "2단계 · RFP 매핑" — 이 계약의 RFP
-    문서를 다시 파싱하고 LLM/qa_agent로 '원본 ↔ 파싱 결과'의 소제목 매핑을
-    검수한다. RFP는 보통 계약관리→이행관리 이관 시점에 이미 자동으로 한 번
-    파싱되지만, 여기서 다시 실행해도 결과는 동일하다(멱등).
+    사업수행계획서(kickoff) AI 분석 화면의 "2단계 · RFP 매핑" — 이 계약의 RFP 문서를 다시 파싱하고 
+    LLM/qa_agent로 '원본 ↔ 파싱 결과'의 소제목 매핑을 검수한다. 
+    RFP는 보통 계약관리→이행관리 이관 시점에 이미 자동으로 한 번 파싱되지만, 여기서 다시 실행해도 결과는 동일하다(멱등).
 
     호출 시점: 이 화면의 2단계 탭에서 "RFP AI 분석 시작" 버튼 클릭.
     """
@@ -471,7 +470,7 @@ def deliverable_parse_rfp_qa(request, del_id):
         performance__contract__created_by=request.user,
     )
     if d.deliverable_type != 'kickoff':
-        return JsonResponse({'status': 'error', 'message': '사업수행계획서에서만 지원합니다.'}, status=400)
+        return JsonResponse({'status': 'error', 'message': '과업수행계획서에서만 지원합니다.'}, status=400)
 
     rfp_doc = d.performance.contract.documents.filter(doc_type='rfp').first()
     if not rfp_doc:
@@ -502,8 +501,8 @@ def deliverable_parse_rfp_qa(request, del_id):
 @require_POST
 def deliverable_compare_rfp(request, del_id):
     """
-    사업수행계획서(kickoff)는 RFP와, 사업추진결과보고서(final)는 사업수행계획서(PEP)와
-    비교한다 — final은 "계획한 대로 실제로 이행됐는지"를 확인한다.
+    사업수행계획서(kickoff)는 RFP와, 사업추진결과보고서(final)는 사업수행계획서(PEP)와 비교한다 — 
+    final은 "계획한 대로 실제로 이행됐는지"를 확인한다.
 
     호출 시점: QA 검수 결과 확인 후 "그대로 진행" 버튼 클릭 (반려 없이 비교로 넘어갈 때).
     LLM 판정이 들어가면 수 분 걸릴 수 있어 비동기(celery .delay())로 돌리고 진행상황을 폴링한다.
@@ -513,7 +512,7 @@ def deliverable_compare_rfp(request, del_id):
         performance__contract__created_by=request.user,
     )
     if d.deliverable_type not in ('kickoff', 'final'):
-        return JsonResponse({'status': 'error', 'message': '사업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
+        return JsonResponse({'status': 'error', 'message': '과업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
 
     # 반려하지 않고 그대로 2단계로 넘어온 경우, 1단계에 이슈가 있었는지 남겨둔다
     # (반려 여부는 deliverable_reject_qa에서 별도로 기록한다).
@@ -617,7 +616,7 @@ def deliverable_reject_qa(request, del_id):
         performance__contract__created_by=request.user,
     )
     if d.deliverable_type not in ('kickoff', 'final'):
-        return JsonResponse({'status': 'error', 'message': '사업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
+        return JsonResponse({'status': 'error', 'message': '과업수행계획서·사업추진결과보고서만 지원합니다.'}, status=400)
 
     from .models import AIAnalysisLog
     parsed = d.parsed_data if d.deliverable_type == 'kickoff' else d.final_parsed_data
@@ -813,7 +812,7 @@ def deliverable_export_pdf(request, del_id):
         cmp = comparison.comparison_json or {}
     elif d.deliverable_type == 'final':
         comparison = d.performance.pep_final_comparisons.first()
-        target_label = '사업수행계획서 대응비교'
+        target_label = '과업수행계획서 대응비교'
         if not comparison or comparison.status != 'done':
             return HttpResponse("대응비교 결과가 없습니다. AI 분석을 먼저 실행해주세요.", status=400)
         cmp = comparison.comparison_json or {}
