@@ -840,8 +840,8 @@ function loadPdfPages(pagesUrl, pageUrl) {
         img.src = pageUrl(p);
         img.style.cssText = 'width:100%; display:block;';
         img.alt = `페이지 ${p}`;
-        wrap.appendChild(pageNum);
         wrap.appendChild(img);
+        wrap.appendChild(pageNum);
         container.appendChild(wrap);
       }
     });
