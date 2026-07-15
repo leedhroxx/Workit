@@ -159,6 +159,8 @@ def document_analyze(request, doc_id):
         'is_processing': is_processing,
         'task_id': result.task_id if is_processing else '',
         'stale_minutes': AI_ANALYSIS_STALE_MINUTES,
+        # 이미 이행관리로 이관된 계약은 "이관하기" 버튼을 다시 보여주면 안 된다.
+        'already_transferred': hasattr(doc.contract, 'performance'),
     })
 
 
@@ -219,13 +221,17 @@ def document_complete_review(request, doc_id):
     from performance.models import Performance
 
     doc = get_object_or_404(ContractDocument, pk=doc_id, contract__created_by=request.user)
-    doc.review_status = 'reviewed'
-    doc.save()
-
     contract = doc.contract
-    contract.status = 'in_progress'
 
-    # 이관 전 검증 
+    # 이미 이행관리로 이관된 계약은 다시 이관할 수 없다 — 버튼은 화면에서 숨기지만,
+    # 이 엔드포인트를 직접 다시 호출하는 경우(예: 새로고침 전 중복 클릭)를 대비한 방어.
+    if hasattr(contract, 'performance'):
+        return JsonResponse({
+            'status': 'error',
+            'message': '이미 이행관리로 이관된 계약입니다.',
+        }, status=400)
+
+    # 이관 전 검증
     # 1. 필수 문서 3종 확인
     REQUIRED_DOCS = [
         ('requirements', '요구사항정의서'),
