@@ -80,7 +80,7 @@ def extract_text(file_path: str) -> str:
 
 def parse_to_workit(inference_results: list) -> dict:
     """
-    jihye_inference.run_inference() 반환값 →  Workit AIReviewResult 형식으로 변환.
+    inference.run_inference() 반환값 →  Workit AIReviewResult 형식으로 변환.
 
     inference_results 각 항목 구조:
     {

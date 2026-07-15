@@ -75,7 +75,7 @@ class RemoteReranker:
 
 
 def remote_predict(item: dict, base_url: str, timeout: int = 120) -> dict:
-    """jihye_inference.predict(item, model, tokenizer)와 같은 반환 형식으로 /predict를 호출한다.
+    """inference.predict(item, model, tokenizer)와 같은 반환 형식으로 /predict를 호출한다.
 
     임베딩/리랭커 서버와 LLM 서버는 transformers 버전이 서로 호환되지 않아
     RunPod에서 별도 venv·별도 포트로 띄운다(embed_server:8000, llm_server:8002).
@@ -87,7 +87,7 @@ def remote_predict(item: dict, base_url: str, timeout: int = 120) -> dict:
     return resp.json()["prediction"]
 
 def remote_compare_pep(item: dict, base_url: str, timeout: int = 180) -> dict:
-    """RFP ↔ 사업수행계획서(PEP) 대응비교. jihye_inference.predict_pep()와 같은 반환 형식."""
+    """RFP ↔ 사업수행계획서(PEP) 대응비교. inference.predict_pep()와 같은 반환 형식."""
     resp = _post_with_logging(
         "compare-pep", f"{base_url.rstrip('/')}/compare-pep", {"item": item}, timeout
     )
@@ -95,7 +95,7 @@ def remote_compare_pep(item: dict, base_url: str, timeout: int = 180) -> dict:
 
 
 def remote_compare_rpt(item: dict, base_url: str, timeout: int = 180) -> dict:
-    """사업수행계획서(PEP) ↔ 사업추진결과보고서(RPT) 대응비교. jihye_inference.predict_rpt()와 같은 반환 형식."""
+    """사업수행계획서(PEP) ↔ 사업추진결과보고서(RPT) 대응비교. inference.predict_rpt()와 같은 반환 형식."""
     resp = _post_with_logging(
         "compare-rpt", f"{base_url.rstrip('/')}/compare-rpt", {"item": item}, timeout
     )

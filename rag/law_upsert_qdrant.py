@@ -28,7 +28,7 @@ Point id는 chunk_id 해시값(결정론적) — 배열 순서 아님, 매칭은
    RECREATE_COLLECTIONS=False로 skip-upsert 모드를 쓸 계획이 있다면 반드시 필요한 수정.)
 2. (취소됨) 애초엔 article_number를 PAYLOAD_FIELDS에서 제거하려 했음 — law_kb_jo에서
    article_id와 1,186/1,186 완전 일치해 중복 필드로 보였기 때문. 하지만 grep 결과
-   jihye_inference.py, pdfver_yoonha_contract_rag.py가 payload["article_number"]를
+   inference.py, pdfver_yoonha_contract_rag.py가 payload["article_number"]를
    직접 읽고 있는 게 확인되어 제거 시 두 파일이 조용히 깨짐(에러 없이 값 누락).
    또한 law_chunk_reference.py(항/호/목 파서)를 보면 ho 레벨에서는 article_number가
    article_id보다 세분화된 값(예: "...제3항제2호")을 가질 걸로 보여, jo 레벨 완전
@@ -78,7 +78,7 @@ DATASETS = {
 
 # 임베딩에 쓴 payload 필드 (text는 인덱싱만 하고 payload에도 남겨서 리랭크/표시에 사용)
 # article_number 제거 (2026-07-14, 재확정) — article_id와 jo/ho 전수 100% 일치하는 중복 필드.
-# jihye_inference.py / pdfver_yoonha_contract_rag.py는 참조하지만 미사용 파일이라 무관.
+# inference.py / pdfver_yoonha_contract_rag.py는 참조하지만 미사용 파일이라 무관.
 # eval 스크립트에서 article_number를 쓰는 부분은 별도로 article_id 참조로 수정 예정
 # (담당: 전윤하) — 이 코드 반영 전에 eval 쪽 수정이 먼저 들어가 있어야 함.
 PAYLOAD_FIELDS = [

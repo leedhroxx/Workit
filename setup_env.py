@@ -145,7 +145,7 @@ def check_poppler():
 
 
 def check_model():
-    """LoRA 어댑터 파일 확인 (rag/jihye_inference.py의 ADAPTER_PATH와 동일 경로).
+    """LoRA 어댑터 파일 확인 (rag/inference.py의 ADAPTER_PATH와 동일 경로).
 
     RunPod 원격 추론 모드를 쓰면 어댑터는 RunPod 쪽에만 있으면 되고 로컬엔 없어도 된다
     (EMBED_SERVER_URL/LLM_SERVER_URL 설정 시 [0]에서 안내).
