@@ -21,22 +21,46 @@ def _auth_headers():
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 
+_RETRYABLE_ATTEMPTS = 3
+_RETRYABLE_BACKOFF_SECONDS = 3
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """RunPod 프록시가 백엔드는 정상 처리했는데도 튜널 쪽에서 끊겨 520류 응답을 주는
+    경우가 있다(요청이 느릴수록 잦음) — 이런 일시적 오류/타임아웃/연결 실패만 재시도한다.
+    422 같은 4xx는 요청 자체가 잘못된 것이라 재시도해도 똑같이 실패하므로 재시도하지 않는다.
+    """
+    response = getattr(exc, 'response', None)
+    if response is not None:
+        return response.status_code >= 500
+    return isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError))
+
+
 def _post_with_logging(label: str, url: str, json_payload: dict, timeout: int) -> requests.Response:
     """RunPod 호출 공통 래퍼 — 성공/실패/응답시간을 로그로 남긴다(TC-NF-021).
 
     이 프로세스의 표준 출력은 gunicorn/celery 로그 파일로 잡혀서 CloudWatch Logs로 올라간다.
+    RunPod 프록시(*.proxy.runpod.net)가 백엔드는 정상 응답했음에도 튜널 쪽 문제로
+    520 등을 반환하는 경우가 실측으로 확인돼, 그런 일시적 오류에 한해 짧게 재시도한다.
     """
-    started = time.monotonic()
-    try:
-        resp = requests.post(url, json=json_payload, headers=_auth_headers(), timeout=timeout)
-        resp.raise_for_status()
-    except Exception as exc:
+    last_exc = None
+    for attempt in range(1, _RETRYABLE_ATTEMPTS + 1):
+        started = time.monotonic()
+        try:
+            resp = requests.post(url, json=json_payload, headers=_auth_headers(), timeout=timeout)
+            resp.raise_for_status()
+        except Exception as exc:
+            elapsed = time.monotonic() - started
+            print(f'[remote_inference_client] {label} 실패 (시도 {attempt}/{_RETRYABLE_ATTEMPTS}, {elapsed:.2f}s) — {url}: {exc}')
+            last_exc = exc
+            if attempt < _RETRYABLE_ATTEMPTS and _is_retryable(exc):
+                time.sleep(_RETRYABLE_BACKOFF_SECONDS)
+                continue
+            raise
         elapsed = time.monotonic() - started
-        print(f'[remote_inference_client] {label} 실패 ({elapsed:.2f}s) — {url}: {exc}')
-        raise
-    elapsed = time.monotonic() - started
-    print(f'[remote_inference_client] {label} 성공 ({elapsed:.2f}s) — {url}')
-    return resp
+        print(f'[remote_inference_client] {label} 성공 ({elapsed:.2f}s) — {url}')
+        return resp
+    raise last_exc
 
 class RemoteEmbedModel:
     """BGEM3FlagModel.encode()와 같은 인터페이스로 /embed를 호출한다."""

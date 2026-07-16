@@ -372,6 +372,13 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
         import traceback
         err = traceback.format_exc()
         print(f'[compare_rfp_execution_plan_task] 실패 — performance_id={performance_id}\n{err}')
+        # status가 'processing'에 그대로 머무르면 deliverable_compare_rfp의 중복 실행 방지 로직이
+        # COMPARE_STALE_MINUTES(60분) 동안 이 실패한 task_id를 그대로 재사용해버려서,
+        # 사용자가 재시도해도 같은 에러가 계속 뜨는 것처럼 보인다 — 즉시 재시도 가능하도록 실패로 표시한다.
+        try:
+            RFPComparisonResult.objects.filter(performance_id=performance_id).update(status='failed')
+        except Exception:
+            pass
         raise self.retry(exc=exc)
 
 
@@ -618,6 +625,13 @@ def compare_pep_final_report_task(self, performance_id: int):
         import traceback
         err = traceback.format_exc()
         print(f'[compare_pep_final_report_task] 실패 — performance_id={performance_id}\n{err}')
+        # status가 'processing'에 그대로 머무르면 deliverable_compare_rfp의 중복 실행 방지 로직이
+        # COMPARE_STALE_MINUTES(60분) 동안 이 실패한 task_id를 그대로 재사용해버려서,
+        # 사용자가 재시도해도 같은 에러가 계속 뜨는 것처럼 보인다 — 즉시 재시도 가능하도록 실패로 표시한다.
+        try:
+            PEPFinalComparisonResult.objects.filter(performance_id=performance_id).update(status='failed')
+        except Exception:
+            pass
         raise self.retry(exc=exc)
 
 
