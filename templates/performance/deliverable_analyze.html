@@ -111,6 +111,7 @@
           </div>
           <h3>AI 품질 분석</h3>
           <p><strong>{{ criteria_label|linebreaksbr }}</strong><br>각 항목의 적용/부분적용/미적용/해당없음 체크와<br>사유 작성 여부를 규칙 기반으로 검증합니다.</p>
+          <p>Workit은 AI이며 실수할 수 있습니다.<br><span style="display:inline-block; padding-left:12px;">응답을 다시 한번 확인해 주세요.</span></p>
           <button class="btn btn-primary" id="btnAnalyze" onclick="runAnalysis()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             AI 분석 시작
@@ -212,6 +213,7 @@ function qaIntroHtml(docLabel, btnId, onclickFn) {
       </div>
       <h3>${docLabel} 분석</h3>
       <p>원본 문서와 규칙 기반 파싱 결과를 대조해<br>소제목 매핑이 정확한지, 누락된 항목은 없는지<br>검수합니다.</p>
+      <p>Workit은 AI이며 실수할 수 있습니다.<br><span style="display:inline-block; padding-left:12px;">응답을 다시 한번 확인해 주세요.</span></p>
       <button class="btn btn-primary" id="${btnId}" onclick="${onclickFn}()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         ${docLabel} AI 분석 시작
