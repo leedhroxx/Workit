@@ -207,6 +207,12 @@ def parse_execution_plan_task(self, deliverable_id: int):
                     'code': code, 'title': cell['table'], 'location': location,
                     'message': cell['message'],
                 })
+                # section_bboxes와 같은 {code: {"fragments": [...]}} 형태로 넣어두면
+                # 프론트의 기존 소제목 하이라이트 클릭 로직을 그대로 재사용해 이 빈 칸도 클릭 가능해진다.
+                if cell.get('bbox'):
+                    qa_report.setdefault('section_bboxes', {})[code] = {
+                        'fragments': [{'page': cell['page'], 'bbox': cell['bbox']}],
+                    }
             qa_report['review_status'] = 'FAIL'
             qa_report['passed'] = False
             qa_report['can_auto_proceed'] = False
