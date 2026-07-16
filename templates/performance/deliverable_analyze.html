@@ -361,7 +361,7 @@ function renderQaStep() {
 }
 
 // 소제목 이슈 항목(comments[])을 <li> 목록으로 그린다 — sectionBboxes에 code가 있으면
-// 클릭 시 좌측 뷰어에 하이라이트되도록 data-page/data-bbox를 함께 심는다.
+// 클릭 시 좌측 뷰어에 그 소제목의 내용 영역 전체가 하이라이트되도록 data-fragments를 심는다.
 function renderIssueEntriesHtml(issues, comments, sectionBboxes) {
   const issueByCode = {};
   issues.forEach(issue => { if (issue.code && !(issue.code in issueByCode)) issueByCode[issue.code] = issue; });
@@ -382,11 +382,11 @@ function renderIssueEntriesHtml(issues, comments, sectionBboxes) {
     const ic = lv === 'bad' ? '✕' : '⚠';
     const typeLabel = relatedIssue ? (ISSUE_TYPE_LABEL[relatedIssue.issue_type] || relatedIssue.issue_type) : '확인 필요';
     const loc = entry.location ? `${escapeHtml(entry.location)}: ` : '';
-    const bboxInfo = (sectionBboxes || {})[entry.code];
-    const clickAttrs = bboxInfo
-      ? ` data-page="${bboxInfo.page}" data-bbox='${JSON.stringify(bboxInfo.bbox)}' onclick="placeSectionHighlightFromEl(this)"`
+    const fragments = ((sectionBboxes || {})[entry.code] || {}).fragments;
+    const clickAttrs = fragments && fragments.length
+      ? ` data-fragments='${JSON.stringify(fragments)}' onclick="placeSectionHighlightFromEl(this)"`
       : '';
-    html += `<li class="${lv}${bboxInfo ? ' issue-clickable' : ''}"${clickAttrs}><span class="ic">${ic}</span><span><strong>[${typeLabel}]</strong> ${loc}${escapeHtml(entry.message)}</span></li>`;
+    html += `<li class="${lv}${fragments && fragments.length ? ' issue-clickable' : ''}"${clickAttrs}><span class="ic">${ic}</span><span><strong>[${typeLabel}]</strong> ${loc}${escapeHtml(entry.message)}</span></li>`;
   });
   html += `</ul>`;
   return html;
@@ -600,11 +600,11 @@ function renderComparisonHtml(cmp) {
       const messageHtml = escapeHtml(e.message || '').replace(/\n/g, '<br>');
       const targetCodes = e.target_codes || e.target_codes_checked || [];
       const matchedCode = targetCodes.find(c => ownSectionBboxes[c]);
-      const bboxInfo = matchedCode ? ownSectionBboxes[matchedCode] : null;
-      const clickAttrs = bboxInfo
-        ? ` data-page="${bboxInfo.page}" data-bbox='${JSON.stringify(bboxInfo.bbox)}' onclick="placeSectionHighlightFromEl(this)"`
+      const fragments = matchedCode ? (ownSectionBboxes[matchedCode] || {}).fragments : null;
+      const clickAttrs = fragments && fragments.length
+        ? ` data-fragments='${JSON.stringify(fragments)}' onclick="placeSectionHighlightFromEl(this)"`
         : '';
-      html += `<li class="${e.lv}${bboxInfo ? ' issue-clickable' : ''}"${clickAttrs}>
+      html += `<li class="${e.lv}${fragments && fragments.length ? ' issue-clickable' : ''}"${clickAttrs}>
         <span class="ic">${ic}</span>
         <span>${messageHtml}</span>
       </li>`;
@@ -818,39 +818,42 @@ window.jumpToTechApplyItem = function(idx) {
   else if (img) img.addEventListener('load', place, { once: true });
 };
 
-// 소제목 매핑 QA(1·2단계)/대응비교(3단계) 항목 클릭 → 좌측 뷰어에 위치 하이라이트.
-// tech_apply와 같은 %기반 bbox 방식을 공유하되, 클릭 시점에 항상 하나만 남도록 별도 클래스로 관리한다.
+// 소제목 매핑 QA(1·2단계)/대응비교(3단계) 항목 클릭 → 좌측 뷰어에 소제목 내용 영역 전체를 하이라이트.
+// 소제목 자체(제목 한 줄)만이 아니라 다음 소제목 직전까지의 내용을 덮어야 하므로,
+// bbox_locator.py가 넘겨주는 fragments(페이지를 걸치면 여러 조각)를 전부 그린다.
+// tech_apply와 같은 %기반 bbox 방식을 공유하되, 클릭 시점에 항상 새로 남도록 별도 클래스로 관리한다.
 function placeSectionHighlightFromEl(el) {
-  const page = parseInt(el.dataset.page, 10);
-  if (!page || !el.dataset.bbox) return;
-  placeSectionHighlight(page, JSON.parse(el.dataset.bbox));
+  if (!el.dataset.fragments) return;
+  placeSectionHighlight(JSON.parse(el.dataset.fragments));
 }
 
-function placeSectionHighlight(page, bbox) {
+function placeSectionHighlight(fragments) {
   clearSectionHighlight();
-  if (!page || !bbox) return;
-  const container = document.getElementById('pdfPages');
-  if (!container) return;
-  const pageWrap = container.querySelector(`[data-page="${page}"]`);
-  if (!pageWrap) return;
+  if (!fragments || !fragments.length) return;
 
-  const PAD_Y = 4;
-  const place = () => {
+  fragments.forEach((frag, idx) => {
+    const container = document.getElementById('pdfPages');
+    if (!container) return;
+    const pageWrap = container.querySelector(`[data-page="${frag.page}"]`);
+    if (!pageWrap) return;
+
+    const place = () => {
+      const img = pageWrap.querySelector('img');
+      if (!img) return;
+      const hl = document.createElement('div');
+      hl.className = 'tech-apply-highlight section-highlight';
+      hl.style.left = (img.offsetLeft + frag.bbox.left / 100 * img.offsetWidth) + 'px';
+      hl.style.top = (img.offsetTop + frag.bbox.top / 100 * img.offsetHeight) + 'px';
+      hl.style.width = (frag.bbox.width / 100 * img.offsetWidth) + 'px';
+      hl.style.height = (frag.bbox.height / 100 * img.offsetHeight) + 'px';
+      pageWrap.appendChild(hl);
+      if (idx === 0) hl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
     const img = pageWrap.querySelector('img');
-    if (!img) return;
-    const hl = document.createElement('div');
-    hl.className = 'tech-apply-highlight section-highlight';
-    hl.style.left = (img.offsetLeft + bbox.left / 100 * img.offsetWidth) + 'px';
-    hl.style.top = (img.offsetTop + bbox.top / 100 * img.offsetHeight - PAD_Y) + 'px';
-    hl.style.width = (bbox.width / 100 * img.offsetWidth) + 'px';
-    hl.style.height = (bbox.height / 100 * img.offsetHeight + PAD_Y * 2) + 'px';
-    pageWrap.appendChild(hl);
-    hl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
-  const img = pageWrap.querySelector('img');
-  if (img && img.complete) place();
-  else if (img) img.addEventListener('load', place, { once: true });
+    if (img && img.complete) place();
+    else if (img) img.addEventListener('load', place, { once: true });
+  });
 }
 
 function clearSectionHighlight() {
