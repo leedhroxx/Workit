@@ -1011,9 +1011,15 @@ def merge_llm_verdicts(comparison_json: dict, llm_results: dict, code_key: str) 
         elif label == '검토':
             entry['message'] = f"{description}\n" + '\n'.join(eval_lines)
             partial.append(entry)
-        else:
-            # '불가' 또는 파싱 실패(None)는 전부 미흡으로 — 애매하면 사람이 보게 한다
+        elif label == '불가':
             entry['message'] = f"{description}\n" + '\n'.join(eval_lines)
+            unsatisfied.append(entry)
+        else:
+            # label이 None = LLM 출력을 JSON으로 파싱하지 못함(rag/inference.py._compare_predict의
+            # 파싱 실패 폴백). 이걸 "불가"로 단정해 사유 없이 보여주면, 실제로는 판정 자체가
+            # 안 된 것인데 마치 확정된 미흡 사유처럼 보여 사용자가 오해한다 — 파싱 실패임을
+            # 명시하고 소제목만 덩그러니 뜨는 일이 없게 한다.
+            entry['message'] = f"{description}\nAI 판정 결과를 해석하지 못했습니다 — 이 항목은 재분석이 필요합니다."
             unsatisfied.append(entry)
 
     merged = dict(comparison_json)
