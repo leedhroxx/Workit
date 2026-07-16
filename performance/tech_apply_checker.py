@@ -177,10 +177,11 @@ def _text_lines(page, bbox) -> list:
 def _group_logical_lines(raw_lines: list) -> list:
     """
     여러 물리 줄을 논리적 항목 단위로 묶는다. 새 항목은 다음 중 하나일 때 시작된다:
-      - '-' 또는 'o/ㅇ'로 시작하는 줄
+      - '-'로 시작하는 줄 (항상 새 항목)
+      - 'o/ㅇ'로 시작하는 줄인데, 직전 항목이 'o/ㅇ'로 시작한 게 아닌 경우
       - 직전 줄과의 세로 간격이 LINE_GAP_THRESHOLD를 넘으면서, 이 줄이 직전 항목의
         시작 x좌표보다 더 들여쓰여 있지는 않은 줄(불릿 없는 별개 항목)
-    그 외(불릿 없고, 간격이 좁거나 들여쓰기된 줄)는 워드랩 연속 줄로 보고
+    그 외(불릿 없고 간격이 좁거나 들여쓰기된 줄, 또는 'o/ㅇ'가 연달아 나오는 줄)는
     직전 항목에 이어붙인다.
 
     간격만으로는 부족한 이유: 워드랩은 보통 줄 간격이 좁지만(제목/본문 폰트 한 줄
@@ -191,6 +192,15 @@ def _group_logical_lines(raw_lines: list) -> list:
     잡히는 걸 막을 수 있다. IPv4/IPv6처럼 불릿 없이 나열되는 별개 항목들은 서로
     같은 왼쪽 여백에서 시작하므로(들여쓰기 아님) 이 판별에 영향받지 않는다.
 
+    'o/ㅇ'가 연달아 나오면 무조건 이어붙이는 이유: 이 문서에서 한 셀 안에
+    'o'로 시작하는 관련 규정/지침을 여러 줄 나열하는 행은 체크박스가 행 전체에
+    하나만 있다(예: "o 공공기관의 데이터베이스 표준화 지침 / o 공공데이터
+    관리지침 / o 공공데이터 제공・관리 매뉴얼" 세 줄에 체크 표시는 하나뿐).
+    'o' 줄마다 매번 새 항목으로 쪼개면 체크 표시가 그 중 한 줄에만 매칭되고
+    나머지는 "체크된 항목이 없습니다" 오류로 잘못 잡힌다. 반면 서로 다른 'o'
+    항목이 각자 체크박스를 갖는 경우는 이 문서에서 항상 별도의 표 행으로
+    나뉘어 있으므로(셀 내부에 함께 나열되지 않음) 이 규칙에 영향받지 않는다.
+
     Returns: [(top, bottom, text, is_group_intro), ...]
         is_group_intro: 'o/ㅇ'로 시작하면서 바로 다음 논리 줄이 '-'로 시작하는
         하위 항목 묶음용 소제목인 경우 True (그 자체는 체크 대상이 아님).
@@ -198,12 +208,15 @@ def _group_logical_lines(raw_lines: list) -> list:
     groups: list = []  # [top, bottom, base_x0, text]
     for top, bottom, x0, text in raw_lines:
         gap = (top - groups[-1][1]) if groups else None
-        is_bullet = bool(BULLET_DASH_RE.match(text) or BULLET_O_RE.match(text))
+        is_dash = bool(BULLET_DASH_RE.match(text))
+        is_o = bool(BULLET_O_RE.match(text))
+        prev_is_o_group = bool(groups) and bool(BULLET_O_RE.match(groups[-1][3]))
         indented = bool(groups) and (x0 > groups[-1][2] + INDENT_THRESHOLD)
         starts_new = (
             not groups
-            or is_bullet
-            or (gap > LINE_GAP_THRESHOLD and not indented)
+            or is_dash
+            or (is_o and not prev_is_o_group)
+            or (not is_dash and not is_o and gap > LINE_GAP_THRESHOLD and not indented)
         )
         if starts_new:
             groups.append([top, bottom, x0, text])
