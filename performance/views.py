@@ -232,6 +232,9 @@ def deliverable_upload(request, perf_id):
         defaults['due_date'] = due_date
     if submitted_date:
         defaults['submitted_date'] = submitted_date
+    elif f:
+        # 업로드 폼에서 실제 제출일을 따로 입력받지 않으므로, 파일이 올라온 시점(오늘)을 실제 제출일로 자동 기록한다.
+        defaults['submitted_date'] = timezone.localdate()
 
     d, created = Deliverable.objects.update_or_create(
         performance=perf,
