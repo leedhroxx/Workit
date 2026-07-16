@@ -30,7 +30,7 @@ COMPARE_STALE_MINUTES = 60
 # 산출물 유형별 평가 기준 문서 매핑
 DELIVERABLE_CRITERIA = {
     'kickoff': '과업수행계획서 품질평가 기준 (16개 목차 항목 × 9개 품질특성)',
-    'tech_apply': '기술적용결과표 체크박스 정합성 검증 (적용/부분적용/미적용/해당없음 + 사유)',
+    'tech_apply': '기술적용결과표 체크박스 정합성 검증\n(적용/부분적용/미적용/해당없음 + 사유)',
     'test_plan': None,
     'test_result': None,
     'final': '사업추진결과보고서 소제목 매핑 QA 검수 · RFP 대응 비교',
