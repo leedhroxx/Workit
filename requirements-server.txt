@@ -10,6 +10,7 @@ sentence-transformers
 qdrant-client
 FlagEmbedding
 numpy
+requests
 
 # 문서 처리
 pdfplumber

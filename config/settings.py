@@ -12,8 +12,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
-# SECRET_KEY = "django-insecure-8ss%o!+fz+rxppl%&)j!8i^--w-=7-e%f7=jt49%v$a4x8)9_l"
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-8ss%o!+fz+rxppl%&)j!8i^--w-=7-e%f7=jt49%v$a4x8)9_l')
+# .env에 SECRET_KEY가 없으면 즉시 에러 — 이 저장소는 공개돼 있어서, 예전에 쓰던 기본값을 그대로 남겨두면 그 값이 그대로 노출된 채 쓰일 위험이 있다.
+SECRET_KEY = os.environ['SECRET_KEY']
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 

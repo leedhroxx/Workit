@@ -47,7 +47,7 @@ def load_model():
 
 
 def build_user_content(item: dict) -> str:
-    """학습(jihye_render.py)과 동일한 user 프롬프트 생성."""
+    """학습 시 쓴 렌더링 스크립트와 동일한 user 프롬프트 생성."""
     # RAG 출력엔 seed의 category가 없어 risk_names를 대용 (없으면 기타)
     cat = ", ".join(item.get("risk_names", [])) or "기타"
 

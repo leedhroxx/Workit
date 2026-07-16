@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Dev Period](https://img.shields.io/badge/개발기간-2026.05.22%20~%202026.07.16-lightgrey)](#)
 
-**🔗 배포/데모: _(링크 추가 예정)_**
+**🔗 배포/데모: [workit-ai.cloud](https://workit-ai.cloud)**
 
 </div>
 
@@ -123,11 +123,11 @@ FastAPI sLLM 서버 (Kanana 1.5 8B + QLoRA)
 |---|---|
 | 백엔드 | Django, Celery, Redis |
 | 프론트엔드 | HTML/CSS/JavaScript, Django Template |
-| 데이터베이스 | PostgreSQL (AWS RDS) |
+| 데이터베이스 | MySQL (운영, AWS RDS) / SQLite (로컬 기본값) |
 | 벡터DB | Qdrant |
-| AI/RAG | Python, OpenAI API, Kanana 1.5 8B(sLLM, QLoRA), BGE-M3(FlagEmbedding, Hugging Face), sentence-transformers, RRF, runpod |
+| AI/RAG | Python, Kanana 1.5 8B(sLLM, QLoRA), BGE-M3(FlagEmbedding, Hugging Face), sentence-transformers, RRF, RunPod |
 | 문서 처리 | pdfplumber, PyMuPDF, python-docx, pdf2image, poppler, LibreOffice, ReportLab |
-| 클라우드/배포 | AWS(EC2, S3, VPC), GitHub Actions, Docker |
+| 클라우드/배포 | AWS(EC2, S3, VPC), GitHub Actions |
 | 협업/관리 | GitHub, Jira |
 
 <!-- 📸 스크린샷/데모 이미지 자리 (추후 채우기) -->
@@ -159,11 +159,14 @@ cp .env.example .env
 # .env 파일을 열어 SECRET_KEY 등 값을 채워주세요.
 ```
 
-### 3) 인프라 실행 (PostgreSQL, Qdrant)
+### 3) 인프라 실행 (Qdrant)
 
 ```bash
 docker compose up -d
 ```
+
+> DB는 별도 설정이 없으면 로컬 SQLite를 그대로 씁니다. MySQL(운영 환경)을 쓰려면
+> `.env`에 `DB_HOST` 등을 채워주면 됩니다 (`config/settings.py` 참고).
 
 ### 4) 모델 호환성 패치 (최초 1회)
 
@@ -198,7 +201,7 @@ Workit/
 ├── LLM/              # sLLM 학습·평가·검토 에이전트 (Kanana 1.5 8B + QLoRA)
 ├── templates/         # Django 템플릿
 ├── static/            # CSS/JS/이미지
-├── docker/            # DB 초기화 스크립트, Qdrant 볼륨
+├── docker/            # Qdrant 볼륨
 ├── docker-compose.yml
 ├── requirements.txt
 └── setup_env.py       # 팀원 환경 세팅 스크립트
