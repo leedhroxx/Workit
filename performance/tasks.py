@@ -156,6 +156,17 @@ def parse_execution_plan_task(self, deliverable_id: int):
                     import traceback
                     print(f'[parse_execution_plan_task] 표 빈칸 검사 실패 — deliverable_id={deliverable_id}\n{traceback.format_exc()}')
 
+            # 소제목 클릭 시 좌측 뷰어에 하이라이트하기 위한 위치 정보.
+            # PDF만 지원 — HWP는 위 표 검사와 동일하게 건너뛴다(하이라이트 없이 텍스트만 표시됨).
+            section_bboxes = {}
+            if _local.lower().endswith('.pdf'):
+                try:
+                    from qa_agent.bbox_locator import locate_section_bboxes
+                    section_bboxes = locate_section_bboxes(_local, 'pep')
+                except Exception:
+                    import traceback
+                    print(f'[parse_execution_plan_task] 소제목 위치 탐색 실패 — deliverable_id={deliverable_id}\n{traceback.format_exc()}')
+
         if not text.strip():
             raise ValueError('과업수행계획서 텍스트 추출 실패 — 파일을 확인하세요.')
 
@@ -178,6 +189,9 @@ def parse_execution_plan_task(self, deliverable_id: int):
         except Exception:
             import traceback
             print(f'[parse_execution_plan_task] QA 검수 실패 — deliverable_id={deliverable_id}\n{traceback.format_exc()}')
+
+        if qa_report and section_bboxes:
+            qa_report['section_bboxes'] = section_bboxes
 
         if qa_report and sparse_cells:
             for i, cell in enumerate(sparse_cells):
@@ -311,6 +325,7 @@ def compare_rfp_execution_plan_task(self, performance_id: int):
                     llm_results[item['rfp_code']] = {
                         'description': item['description'],
                         'required': item['required'],
+                        'target_codes': item.get('target_codes', []),
                         'label': result.get('label'),
                         'eval': result.get('eval'),
                     }
@@ -402,6 +417,18 @@ def parse_final_report_task(self, deliverable_id: int):
 
         with local_copy(deliverable.file) as _local:
             text = extract_text(_local)
+
+            # 소제목 클릭 시 좌측 뷰어에 하이라이트하기 위한 위치 정보.
+            # PDF만 지원 — HWP는 하이라이트 없이 텍스트만 표시된다.
+            section_bboxes = {}
+            if _local.lower().endswith('.pdf'):
+                try:
+                    from qa_agent.bbox_locator import locate_section_bboxes
+                    section_bboxes = locate_section_bboxes(_local, 'rpt')
+                except Exception:
+                    import traceback
+                    print(f'[parse_final_report_task] 소제목 위치 탐색 실패 — deliverable_id={deliverable_id}\n{traceback.format_exc()}')
+
         if not text.strip():
             raise ValueError('사업추진결과보고서 텍스트 추출 실패 — 파일을 확인하세요.')
 
@@ -424,6 +451,9 @@ def parse_final_report_task(self, deliverable_id: int):
         except Exception:
             import traceback
             print(f'[parse_final_report_task] QA 검수 실패 — deliverable_id={deliverable_id}\n{traceback.format_exc()}')
+
+        if qa_report and section_bboxes:
+            qa_report['section_bboxes'] = section_bboxes
 
         qa_issues = qa_report.get('issues', [])
         from performance.models import AIAnalysisLog
@@ -541,6 +571,7 @@ def compare_pep_final_report_task(self, performance_id: int):
                 llm_results[item['pep_code']] = {
                     'description': item['description'],
                     'required': item['required'],
+                    'target_codes': item.get('target_codes', []),
                     'label': result.get('label'),
                     'eval': result.get('eval'),
                 }

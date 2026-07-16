@@ -24,7 +24,7 @@ ALLOWED_UPLOAD_TYPES = {
     "hwp": {"application/x-hwp", "application/haansofthwp", "application/octet-stream"},
 }
 
-MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024  # 50MB — 프런트 업로드 안내 문구와 동일하게 맞춤
+MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024  # 20MB — 프런트 업로드 안내 문구와 동일하게 맞춤
 
 
 def validate_uploaded_file(f):

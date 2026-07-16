@@ -339,6 +339,18 @@ def parse_rfp_task(self, rfp_doc_id: int):
     try:
         with local_copy(rfp_doc.file) as _local:
             text = extract_text(_local)
+
+            # 소제목 클릭 시 좌측 뷰어에 하이라이트하기 위한 위치 정보.
+            # PDF만 지원 — HWP는 하이라이트 없이 텍스트만 표시된다.
+            section_bboxes = {}
+            if _local.lower().endswith('.pdf'):
+                try:
+                    from qa_agent.bbox_locator import locate_section_bboxes
+                    section_bboxes = locate_section_bboxes(_local, 'rfp')
+                except Exception:
+                    import traceback
+                    print(f'[parse_rfp_task] 소제목 위치 탐색 실패 — doc_id={rfp_doc_id}\n{traceback.format_exc()}')
+
         if not text.strip():
             raise ValueError('RFP 텍스트 추출 실패 — 파일을 확인하세요.')
 
@@ -362,6 +374,9 @@ def parse_rfp_task(self, rfp_doc_id: int):
         except Exception:
             import traceback
             print(f'[parse_rfp_task] QA 검수 실패 — doc_id={rfp_doc_id}\n{traceback.format_exc()}')
+
+        if qa_report and section_bboxes:
+            qa_report['section_bboxes'] = section_bboxes
 
         qa_issues = qa_report.get('issues', [])
         if qa_issues:

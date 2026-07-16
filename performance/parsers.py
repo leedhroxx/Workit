@@ -945,6 +945,7 @@ def collect_llm_compare_items_rfp_pep(rfp_json: dict, pep_json: dict) -> list[di
             'description': mapping['description'],
             'required': mapping['required'],
             'criteria': mapping['criteria'],
+            'target_codes': mapping['target_codes'],  # PEP 코드 — 대응비교 하이라이트에 쓰인다
             'rfp_excerpt': rfp_section.get('content', ''),
             'pep_excerpt': pep_excerpt,
         })
@@ -970,6 +971,7 @@ def collect_llm_compare_items_pep_rpt(pep_json: dict, rpt_json: dict) -> list[di
             'description': mapping['description'],
             'required': mapping['required'],
             'criteria': mapping['criteria'],
+            'target_codes': mapping['target_codes'],  # RPT 코드 — 대응비교 하이라이트에 쓰인다
             'pep_excerpt': pep_section.get('content', ''),
             'rpt_excerpt': rpt_excerpt,
         })
@@ -991,17 +993,18 @@ def merge_llm_verdicts(comparison_json: dict, llm_results: dict, code_key: str) 
 
     for code, result in llm_results.items():
         label = result.get('label')
-        required = result.get('required', False)
         description = result.get('description', '')
         eval_lines = result.get('eval') or []
 
+        # description/required 외에 target_codes 등 하이라이트용 부가 정보도
+        # collect_llm_compare_items_*가 담아준 그대로 통과시킨다.
         entry = {
-            code_key: code,
-            'description': description,
-            'required': required,
-            'llm_label': label,
-            'llm_eval': eval_lines,
+            key: value for key, value in result.items()
+            if key not in ('label', 'eval')
         }
+        entry[code_key] = code
+        entry['llm_label'] = label
+        entry['llm_eval'] = eval_lines
 
         if label == '충족':
             satisfied.append(entry)

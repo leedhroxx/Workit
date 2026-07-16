@@ -44,11 +44,8 @@
 .btn-reject:hover { background:#fee2e2; }
 .qa-action-btn { flex:1; height:52px; display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.3; }
 
-/* 좌측 문서 뷰어: 사업수행계획서 ↔ 제안요청서(RFP) 전환 */
-.doc-source-toggle { margin-left:auto; display:flex; gap:4px; flex-shrink:0; }
-.doc-source-btn { background:#f4f5fb; border:1px solid #e5e7eb; color:#666; font-size:12px; font-weight:600; padding:6px 12px; border-radius:6px; cursor:pointer; white-space:nowrap; }
-.doc-source-btn.active { background:#4f46e5; border-color:#4f46e5; color:#fff; }
-.doc-source-btn:hover:not(.active) { background:#eceeff; }
+/* 좌측 문서 뷰어: 현재 보여주는 문서(자기 자신 / 참조 문서) 표시 — 탭 전환에 따라 자동으로 바뀐다 */
+.doc-viewer-current-label { margin-left:auto; font-size:12px; font-weight:600; color:#666; background:#f4f5fb; border:1px solid #e5e7eb; border-radius:6px; padding:6px 12px; white-space:nowrap; flex-shrink:0; }
 
 .tech-apply-highlight {
   position:absolute; border:2px solid #dc2626; background:rgba(220,38,38,.18);
@@ -72,11 +69,8 @@
         <span class="doc-filename">{{ deliverable.filename }}</span>
         <span class="doc-breadcrumb">{{ contract.project_name }} · {{ deliverable.get_deliverable_type_display }}</span>
       </div>
-      {% if has_rfp_qa_step and rfp_doc_id %}
-        <div class="doc-source-toggle" id="docSourceToggle">
-          <button type="button" class="doc-source-btn active" data-source="kickoff" onclick="switchDocSource('kickoff')">과업수행계획서</button>
-          <button type="button" class="doc-source-btn" data-source="rfp" onclick="switchDocSource('rfp')">제안요청서</button>
-        </div>
+      {% if has_reference_step and reference_doc_id %}
+        <span class="doc-viewer-current-label" id="viewerDocLabel">{{ deliverable.get_deliverable_type_display }}</span>
       {% endif %}
     </div>
 
@@ -100,7 +94,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
           <span id="reviewCountText">보완 0 건</span>
         </div>
-        <span style="margin-left:auto; font-size:11px; color:#999; white-space:nowrap;">평가기준: {% if deliverable.deliverable_type == 'tech_apply' %}기술적용결과표 체크 정합성{% elif is_final %}소제목 매핑 QA · 과업수행계획서 대응 비교{% elif is_kickoff %}과업수행계획서 매핑 · RFP 매핑 · 대응 비교{% elif has_qa_flow %}소제목 매핑 QA · RFP 대응 비교{% endif %}</span>
+        <span style="margin-left:auto; font-size:11px; color:#999; white-space:nowrap;">평가기준: {% if deliverable.deliverable_type == 'tech_apply' %}기술적용결과표 체크 정합성{% elif is_final %}사업추진결과보고서 매핑 · 과업수행계획서 매핑 · 대응 비교{% elif is_kickoff %}과업수행계획서 매핑 · 제안요청서 매핑 · 대응 비교{% elif has_qa_flow %}소제목 매핑 QA · 대응 비교{% endif %}</span>
       </div>
     </div>
 
@@ -168,30 +162,33 @@
 
 {% block extra_js %}
 {{ qa_data|json_script:"qa-data" }}
-{{ rfp_qa_data|json_script:"rfp-qa-data" }}
+{{ reference_qa_data|json_script:"reference-qa-data" }}
 {{ comparison_data|json_script:"comparison-data" }}
 {{ tech_apply_data|json_script:"tech-apply-data" }}
 <script>
 const DEL_ID = {{ deliverable.id }};
 const HAS_QA_FLOW = {{ has_qa_flow|yesno:"true,false" }};
 const IS_FINAL = {{ is_final|yesno:"true,false" }};
-const HAS_RFP_QA_STEP = {{ has_rfp_qa_step|yesno:"true,false" }};  // kickoff 전용 "2단계 · 제안요청서 매핑" 탭
-const RFP_DOC_ID = {{ rfp_doc_id|default_if_none:"null" }};        // 좌측 뷰어에서 제안요청서로 전환할 때 사용
+const HAS_REFERENCE_STEP = {{ has_reference_step|yesno:"true,false" }};  // "2단계 · 참조 문서 확인" 탭 (kickoff=RFP, final=과업수행계획서)
+const REFERENCE_DOC_KIND = "{{ reference_doc_kind|escapejs }}";          // 'rfp' | 'kickoff'
+const REFERENCE_DOC_ID = {{ reference_doc_id|default_if_none:"null" }};
+const REFERENCE_LABEL = "{{ reference_label|escapejs }}";                // '제안요청서' | '과업수행계획서'
 const DOC_LABEL = "{{ deliverable.get_deliverable_type_display|escapejs }}";
 const COMPARE_TARGET_LABEL = IS_FINAL ? '과업수행계획서' : '제안요청서';
-const COMPARE_TAB_INDEX = HAS_RFP_QA_STEP ? 3 : 2;                 // "대응 비교" 탭이 몇 번째인지
+const COMPARE_TAB_INDEX = HAS_REFERENCE_STEP ? 3 : 2;              // "대응 비교" 탭이 몇 번째인지
 const COMPARE_IS_PROCESSING = {{ compare_is_processing|yesno:"true,false" }};
 const COMPARE_TASK_ID = "{{ compare_task_id|escapejs }}";
 const COMPARE_STALE_MS = {{ compare_stale_minutes }} * 60 * 1000;
 const QA_DATA = JSON.parse(document.getElementById('qa-data').textContent);
-const RFP_QA_DATA = JSON.parse(document.getElementById('rfp-qa-data').textContent);
+const REFERENCE_QA_DATA = JSON.parse(document.getElementById('reference-qa-data').textContent);
 let COMPARISON_DATA = JSON.parse(document.getElementById('comparison-data').textContent);
 const TECH_APPLY_DATA = JSON.parse(document.getElementById('tech-apply-data').textContent);
 let ANALYSIS = null;
 
 // ── 소제목-내용 매핑 QA 검수 (원본 ↔ 파싱 결과) ─────────────────────────────
-// kickoff는 1단계(사업수행계획서 자체)·2단계(RFP 자체) 둘 다 같은 방식으로 qa_agent가 검수하고, 3단계에서 둘의 내용을 구조적으로 비교한다.
-// final은 1단계(사업추진결과보고서 자체) 검수 후 2단계에서 바로 사업수행계획서와 비교한다(HAS_RFP_QA_STEP=false라 중간 탭이 없음).
+// kickoff는 1단계(사업수행계획서 자체)·2단계(RFP 자체), final은 1단계(사업추진결과보고서 자체)·
+// 2단계(과업수행계획서 자체) 둘 다 같은 방식으로 qa_agent가 검수하고, 3단계에서 둘의 내용을 비교한다.
+// 각 단계는 좌측 뷰어에 표시되는 문서도 자동으로 함께 바뀐다 (switchViewerForTab 참고).
 
 const ISSUE_TYPE_LABEL = {
   missing_section: '소제목 누락',
@@ -223,10 +220,11 @@ function qaIntroHtml(docLabel, btnId, onclickFn) {
 }
 
 let CURRENT_QA_REPORT = (QA_DATA && QA_DATA.qa_report) || null;
-let RFP_QA_REPORT = (RFP_QA_DATA && RFP_QA_DATA.qa_report) || null;
+let REFERENCE_QA_REPORT = (REFERENCE_QA_DATA && REFERENCE_QA_DATA.qa_report) || null;
 let ACTIVE_QA_TAB = (COMPARISON_DATA || COMPARE_IS_PROCESSING) ? COMPARE_TAB_INDEX : 1;
 let COMPARE_LOADING = COMPARE_IS_PROCESSING;
 let COMPARE_PROGRESS = {current: 0, total: 0};
+let CURRENT_VIEWER_DOC = 'own';  // 'own' | 'reference' — 좌측 뷰어가 지금 어느 문서를 보여주는지
 
 if (COMPARE_IS_PROCESSING) {
   pollCompareStatus(COMPARE_TASK_ID, Date.now());
@@ -271,29 +269,34 @@ function runQaAnalysis() {
   });
 }
 
-function runRfpQaAnalysis() {
-  const btn = document.getElementById('btnParseRfpQa');
+function runReferenceQaAnalysis() {
+  const btn = document.getElementById('btnParseRefQa');
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> 분석 중...';
   }
-  fetch(`/performance/deliverable/${DEL_ID}/parse-rfp-qa/`, {
+  // kickoff의 참조 문서(RFP)는 계약관리 쪽 문서라 별도 엔드포인트, final의 참조 문서(과업수행계획서)는
+  // 이 산출물과 같은 성격(Deliverable)이라 범용 parse-qa 엔드포인트를 그 산출물 id로 호출한다.
+  const url = REFERENCE_DOC_KIND === 'rfp'
+    ? `/performance/deliverable/${DEL_ID}/parse-rfp-qa/`
+    : `/performance/deliverable/${REFERENCE_DOC_ID}/parse-qa/`;
+  fetch(url, {
     method: 'POST',
     headers: {'X-CSRFToken': getCsrf()},
   })
   .then(r => r.json())
   .then(data => {
     if (data.status === 'ok') {
-      RFP_QA_REPORT = data.qa_report;
+      REFERENCE_QA_REPORT = data.qa_report;
       renderQaStep();
     } else {
-      alert(data.message || 'RFP 분석 중 오류가 발생했습니다.');
-      if (btn) { btn.disabled = false; btn.innerHTML = '제안요청서 AI 분석 시작'; }
+      alert(data.message || `${REFERENCE_LABEL} 분석 중 오류가 발생했습니다.`);
+      if (btn) { btn.disabled = false; btn.innerHTML = `${REFERENCE_LABEL} AI 분석 시작`; }
     }
   })
   .catch(() => {
-    alert('RFP 분석 요청에 실패했습니다.');
-    if (btn) { btn.disabled = false; btn.innerHTML = '제안요청서 AI 분석 시작'; }
+    alert(`${REFERENCE_LABEL} 분석 요청에 실패했습니다.`);
+    if (btn) { btn.disabled = false; btn.innerHTML = `${REFERENCE_LABEL} AI 분석 시작`; }
   });
 }
 
@@ -301,10 +304,34 @@ function switchQaTab(n) {
   if (n === COMPARE_TAB_INDEX && !COMPARISON_DATA && !COMPARE_LOADING) return;  // 아직 비교 실행 전에는 못 들어감
   if (COMPARE_LOADING && n !== COMPARE_TAB_INDEX) return;  // 대응비교 분석 진행 중에는 다른 단계로 못 나감
   ACTIVE_QA_TAB = n;
+  clearSectionHighlight();
+  switchViewerForTab(n);
   renderQaStep();
 }
 
-// CURRENT_QA_REPORT / RFP_QA_REPORT / COMPARISON_DATA / ACTIVE_QA_TAB 상태를 그대로 다시 그린다 (문자열 짜깁기 없이 항상 처음부터 재구성).
+// 탭(단계)을 옮기면 좌측 뷰어도 자동으로 그 단계가 다루는 문서로 바뀐다 —
+// 2단계(참조 문서 확인)만 참조 문서(RFP/과업수행계획서)를 보여주고, 나머지 단계는 이 산출물 자신을 보여준다.
+function switchViewerForTab(n) {
+  if (!HAS_REFERENCE_STEP) return;
+  const label = document.getElementById('viewerDocLabel');
+  if (n === 2) {
+    if (CURRENT_VIEWER_DOC === 'reference') return;
+    CURRENT_VIEWER_DOC = 'reference';
+    if (label) label.textContent = REFERENCE_LABEL;
+    if (REFERENCE_DOC_KIND === 'rfp') {
+      loadPdfPages(`/contracts/document/${REFERENCE_DOC_ID}/pages/`, p => `/contracts/document/${REFERENCE_DOC_ID}/page/${p}/`);
+    } else {
+      loadPdfPages(`/performance/deliverable/${REFERENCE_DOC_ID}/pages/`, p => `/performance/deliverable/${REFERENCE_DOC_ID}/page/${p}/`);
+    }
+  } else {
+    if (CURRENT_VIEWER_DOC === 'own') return;
+    CURRENT_VIEWER_DOC = 'own';
+    if (label) label.textContent = DOC_LABEL;
+    loadPdfPages(`/performance/deliverable/${DEL_ID}/pages/`, p => `/performance/deliverable/${DEL_ID}/page/${p}/`);
+  }
+}
+
+// CURRENT_QA_REPORT / REFERENCE_QA_REPORT / COMPARISON_DATA / ACTIVE_QA_TAB 상태를 그대로 다시 그린다 (문자열 짜깁기 없이 항상 처음부터 재구성).
 function renderQaStep() {
   const step = document.getElementById('qaStep');
   if (!step || !CURRENT_QA_REPORT) return;
@@ -312,25 +339,57 @@ function renderQaStep() {
   const hasComparison = !!COMPARISON_DATA;
 
   // 탭 버튼에는 "N단계"만 쓰고, 각 단계의 제목은 탭 내용 맨 위에 표시한다
-  // (renderQaTab1Html / renderRfpQaTabHtml / renderComparisonHtml 참고).
+  // (renderQaTab1Html / renderReferenceQaTabHtml / renderComparisonHtml 참고).
   // 대응비교(LLM) 분석이 진행 중일 때는 다른 단계로 못 나가게 1·2단계 탭을 잠근다 —
   // 안 그러면 로딩 중 다른 탭으로 갔다가 대응비교 탭이 아직 disabled라 못 돌아오고
   // 목록으로 나갔다 다시 들어와야 하는 어색한 흐름이 생긴다.
   let html = `<div class="qa-tabs">
     <button class="qa-tab-btn ${ACTIVE_QA_TAB === 1 ? 'active' : ''}" onclick="switchQaTab(1)" ${COMPARE_LOADING ? 'disabled' : ''}>1단계</button>`;
-  if (HAS_RFP_QA_STEP) {
+  if (HAS_REFERENCE_STEP) {
     html += `<button class="qa-tab-btn ${ACTIVE_QA_TAB === 2 ? 'active' : ''}" onclick="switchQaTab(2)" ${COMPARE_LOADING ? 'disabled' : ''}>2단계</button>`;
   }
   html += `<button class="qa-tab-btn ${ACTIVE_QA_TAB === COMPARE_TAB_INDEX ? 'active' : ''}" onclick="switchQaTab(${COMPARE_TAB_INDEX})" ${(hasComparison || COMPARE_LOADING) ? '' : 'disabled'}>${COMPARE_TAB_INDEX}단계</button>`;
   html += `</div>`;
 
   html += `<div style="${ACTIVE_QA_TAB === 1 ? '' : 'display:none;'}">${renderQaTab1Html()}</div>`;
-  if (HAS_RFP_QA_STEP) {
-    html += `<div style="${ACTIVE_QA_TAB === 2 ? '' : 'display:none;'}">${renderRfpQaTabHtml()}</div>`;
+  if (HAS_REFERENCE_STEP) {
+    html += `<div style="${ACTIVE_QA_TAB === 2 ? '' : 'display:none;'}">${renderReferenceQaTabHtml()}</div>`;
   }
   html += `<div style="${ACTIVE_QA_TAB === COMPARE_TAB_INDEX ? '' : 'display:none;'}">${renderQaTab2Html()}</div>`;
 
   step.innerHTML = html;
+}
+
+// 소제목 이슈 항목(comments[])을 <li> 목록으로 그린다 — sectionBboxes에 code가 있으면
+// 클릭 시 좌측 뷰어에 하이라이트되도록 data-page/data-bbox를 함께 심는다.
+function renderIssueEntriesHtml(issues, comments, sectionBboxes) {
+  const issueByCode = {};
+  issues.forEach(issue => { if (issue.code && !(issue.code in issueByCode)) issueByCode[issue.code] = issue; });
+
+  const entries = comments.length ? comments : issues.map(issue => ({
+    code: issue.code, location: issue.location || issue.title, message: issue.message,
+  }));
+
+  if (!entries.length) {
+    return `<p style="font-size:13px; color:#888; padding:10px 0;">발견된 이슈가 없습니다.</p>`;
+  }
+
+  let html = `<ul class="issue-list">`;
+  entries.forEach(entry => {
+    const relatedIssue = issueByCode[entry.code];
+    const severity = relatedIssue ? relatedIssue.severity : 'review';
+    const lv = severity === 'info' ? 'warn' : 'bad';
+    const ic = lv === 'bad' ? '✕' : '⚠';
+    const typeLabel = relatedIssue ? (ISSUE_TYPE_LABEL[relatedIssue.issue_type] || relatedIssue.issue_type) : '확인 필요';
+    const loc = entry.location ? `${escapeHtml(entry.location)}: ` : '';
+    const bboxInfo = (sectionBboxes || {})[entry.code];
+    const clickAttrs = bboxInfo
+      ? ` data-page="${bboxInfo.page}" data-bbox='${JSON.stringify(bboxInfo.bbox)}' onclick="placeSectionHighlightFromEl(this)"`
+      : '';
+    html += `<li class="${lv}${bboxInfo ? ' issue-clickable' : ''}"${clickAttrs}><span class="ic">${ic}</span><span><strong>[${typeLabel}]</strong> ${loc}${escapeHtml(entry.message)}</span></li>`;
+  });
+  html += `</ul>`;
+  return html;
 }
 
 function renderQaTab1Html() {
@@ -338,7 +397,7 @@ function renderQaTab1Html() {
   const statusClass = report.review_status === 'PASS' ? 'ok' : (report.review_status === 'WARN' ? 'warn' : 'bad');
   const issues = report.issues || [];
   const comments = report.comments || [];
-  const tab1Label = HAS_RFP_QA_STEP ? '과업수행계획서 매핑' : '소제목 매핑 QA';
+  const tab1Label = HAS_REFERENCE_STEP ? `${DOC_LABEL} 매핑` : '소제목 매핑 QA';
 
   let html = `<div class="qa-tab-title">${tab1Label}</div>`;
   html += `<div class="qa-summary qa-summary-2col">
@@ -349,28 +408,8 @@ function renderQaTab1Html() {
   // severity는 "info"(참고용)/"review"(확인 필요) 둘 중 하나 — info만 주황, 나머지는 빨강.
   // code로 issues[] 쪽 severity·issue_type을 찾아와 comments[]의 자연어 메시지와 함께 보여준다.
   // (comments에는 원문 위치가 "그룹 > 소제목" 형태로 들어있어 코드보다 사람이 읽기 쉽다).
-  const issueByCode = {};
-  issues.forEach(issue => { if (issue.code && !(issue.code in issueByCode)) issueByCode[issue.code] = issue; });
-
-  const entries = comments.length ? comments : issues.map(issue => ({
-    code: issue.code, location: issue.location || issue.title, message: issue.message,
-  }));
-
-  if (entries.length) {
-    html += `<ul class="issue-list">`;
-    entries.forEach(entry => {
-      const relatedIssue = issueByCode[entry.code];
-      const severity = relatedIssue ? relatedIssue.severity : 'review';
-      const lv = severity === 'info' ? 'warn' : 'bad';
-      const ic = lv === 'bad' ? '✕' : '⚠';
-      const typeLabel = relatedIssue ? (ISSUE_TYPE_LABEL[relatedIssue.issue_type] || relatedIssue.issue_type) : '확인 필요';
-      const loc = entry.location ? `${escapeHtml(entry.location)}: ` : '';
-      html += `<li class="${lv}"><span class="ic">${ic}</span><span><strong>[${typeLabel}]</strong> ${loc}${escapeHtml(entry.message)}</span></li>`;
-    });
-    html += `</ul>`;
-  } else {
-    html += `<p style="font-size:13px; color:#888; padding:10px 0;">발견된 이슈가 없습니다.</p>`;
-  }
+  // section_bboxes가 있는 항목은 클릭하면 좌측 뷰어에 위치가 하이라이트된다.
+  html += renderIssueEntriesHtml(issues, comments, report.section_bboxes);
 
   // 반려는 이 산출물(1단계) 자체에 이슈가 있으면 언제나 가능해야 한다 —
   // 이미 다음 단계(2·3단계)까지 진행한 뒤에도 반려할 수 있어야 하므로, "다음 단계" 버튼과 달리 COMPARISON_DATA 유무에 상관없이 보여준다.
@@ -381,12 +420,12 @@ function renderQaTab1Html() {
 
   if (!COMPARISON_DATA) {
     // 발견된 이슈가 없으면 반려할 이유도 없으므로 "다음 단계"만 보여준다.
-    // 버튼이 두 개(반려 + 진행) 나란히 있을 때만 텍스트 길이 차이로 높이가 달라지는 문제가 있어 줄바꿈+고정 높이로 맞춘다. 
+    // 버튼이 두 개(반려 + 진행) 나란히 있을 때만 텍스트 길이 차이로 높이가 달라지는 문제가 있어 줄바꿈+고정 높이로 맞춘다.
     // 진행 버튼 혼자 있을 때는 맞출 대상이 없으므로 줄바꿈 없이 한 줄로 보여준다.
-    // kickoff는 다음 단계가 "2단계 · 제안요청서 매핑"이라 탭만 넘어가면 되고 (별도 API 호출 없음), final은 바로 비교분석을 실행한다.
-    const nextOnclick = HAS_RFP_QA_STEP ? 'switchQaTab(2)' : 'proceedToCompare()';
-    const nextLabelOneLine = HAS_RFP_QA_STEP ? '제안요청서 매핑 확인하기' : `${COMPARE_TARGET_LABEL}와 비교분석 진행`;
-    const nextLabelTwoLine = HAS_RFP_QA_STEP ? '제안요청서<br>매핑 확인하기' : `${COMPARE_TARGET_LABEL}와<br>비교분석 진행`;
+    // kickoff/final 둘 다 다음 단계가 "2단계 · 참조 문서 확인"이라 탭만 넘어가면 되고(별도 API 호출 없음).
+    const nextOnclick = HAS_REFERENCE_STEP ? 'switchQaTab(2)' : 'proceedToCompare()';
+    const nextLabelOneLine = HAS_REFERENCE_STEP ? `${REFERENCE_LABEL} 매핑 확인하기` : `${COMPARE_TARGET_LABEL}와 비교분석 진행`;
+    const nextLabelTwoLine = HAS_REFERENCE_STEP ? `${REFERENCE_LABEL}<br>매핑 확인하기` : `${COMPARE_TARGET_LABEL}와<br>비교분석 진행`;
     const proceedLabel = hasRejectBtn ? nextLabelTwoLine : nextLabelOneLine;
     const proceedBtnClass = hasRejectBtn ? 'btn btn-primary qa-action-btn' : 'btn btn-primary';
     html += `
@@ -405,46 +444,26 @@ function renderQaTab1Html() {
   return html;
 }
 
-// kickoff 전용 "2단계 · 제안요청서 매핑" — 이 계약의 RFP 원본↔파싱 결과를 qa_agent로 검수한다. 
-// RFP는 이 산출물(사업수행계획서) 소속이 아니라 계약관리 쪽 문서라서, 여기서는 반려(다시 업로드) 없이 이슈 확인 후 다음 단계로만 진행한다.
-function renderRfpQaTabHtml() {
-  if (!RFP_QA_REPORT) {
-    return qaIntroHtml('제안요청서', 'btnParseRfpQa', 'runRfpQaAnalysis');
+// "2단계 · 참조 문서 확인" — kickoff는 이 계약의 RFP, final은 같은 이행 건의 과업수행계획서(PEP)
+// 원본↔파싱 결과를 qa_agent로 검수한다. 참조 문서는 이 산출물 소속이 아니므로, 여기서는
+// 반려(다시 업로드) 없이 이슈 확인 후 다음 단계로만 진행한다.
+function renderReferenceQaTabHtml() {
+  if (!REFERENCE_QA_REPORT) {
+    return qaIntroHtml(REFERENCE_LABEL, 'btnParseRefQa', 'runReferenceQaAnalysis');
   }
 
-  const report = RFP_QA_REPORT;
+  const report = REFERENCE_QA_REPORT;
   const statusClass = report.review_status === 'PASS' ? 'ok' : (report.review_status === 'WARN' ? 'warn' : 'bad');
   const issues = report.issues || [];
   const comments = report.comments || [];
 
-  let html = `<div class="qa-tab-title">제안요청서 매핑</div>`;
+  let html = `<div class="qa-tab-title">${REFERENCE_LABEL} 매핑</div>`;
   html += `<div class="qa-summary qa-summary-2col">
     <div class="qa-stat ${statusClass}"><div class="num">${report.review_status}</div><div class="lbl">판정</div></div>
     <div class="qa-stat ${issues.length ? 'warn' : 'ok'}"><div class="num">${issues.length}</div><div class="lbl">확인 필요</div></div>
   </div>`;
 
-  const issueByCode = {};
-  issues.forEach(issue => { if (issue.code && !(issue.code in issueByCode)) issueByCode[issue.code] = issue; });
-
-  const entries = comments.length ? comments : issues.map(issue => ({
-    code: issue.code, location: issue.location || issue.title, message: issue.message,
-  }));
-
-  if (entries.length) {
-    html += `<ul class="issue-list">`;
-    entries.forEach(entry => {
-      const relatedIssue = issueByCode[entry.code];
-      const severity = relatedIssue ? relatedIssue.severity : 'review';
-      const lv = severity === 'info' ? 'warn' : 'bad';
-      const ic = lv === 'bad' ? '✕' : '⚠';
-      const typeLabel = relatedIssue ? (ISSUE_TYPE_LABEL[relatedIssue.issue_type] || relatedIssue.issue_type) : '확인 필요';
-      const loc = entry.location ? `${escapeHtml(entry.location)}: ` : '';
-      html += `<li class="${lv}"><span class="ic">${ic}</span><span><strong>[${typeLabel}]</strong> ${loc}${escapeHtml(entry.message)}</span></li>`;
-    });
-    html += `</ul>`;
-  } else {
-    html += `<p style="font-size:13px; color:#888; padding:10px 0;">발견된 이슈가 없습니다.</p>`;
-  }
+  html += renderIssueEntriesHtml(issues, comments, report.section_bboxes);
 
   if (!COMPARISON_DATA) {
     html += `
@@ -467,7 +486,7 @@ function renderQaTab2Html() {
   if (COMPARISON_DATA) {
     return renderComparisonHtml(COMPARISON_DATA);
   }
-  const prevTab = HAS_RFP_QA_STEP ? 2 : 1;
+  const prevTab = HAS_REFERENCE_STEP ? 2 : 1;
   return `<p style="font-size:13px; color:#888; padding:10px 0;">${prevTab}단계에서 "비교분석 진행"을 누르면 결과가 표시됩니다.</p>`;
 }
 
@@ -486,6 +505,8 @@ function proceedToCompare() {
   COMPARE_LOADING = true;
   COMPARE_PROGRESS = {current: 0, total: 0};
   ACTIVE_QA_TAB = COMPARE_TAB_INDEX;
+  clearSectionHighlight();
+  switchViewerForTab(COMPARE_TAB_INDEX);  // 대응비교(3단계)는 이 산출물 자신을 다시 보여준다
   renderQaStep();
 
   fetch(`/performance/deliverable/${DEL_ID}/compare-rfp/`, {
@@ -499,16 +520,22 @@ function proceedToCompare() {
     } else {
       COMPARE_LOADING = false;
       alert(data.message || `${COMPARE_TARGET_LABEL} 비교 중 오류가 발생했습니다.`);
-      ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
-      renderQaStep();
+      goToTabAfterCompareFailure();
     }
   })
   .catch(() => {
     COMPARE_LOADING = false;
     alert(`${COMPARE_TARGET_LABEL} 비교 요청에 실패했습니다.`);
-    ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
-    renderQaStep();
+    goToTabAfterCompareFailure();
   });
+}
+
+// 대응비교가 시작 실패/타임아웃/오류로 끝났을 때, 직전 단계(참조 문서 확인 또는 1단계)로
+// 돌아가면서 좌측 뷰어도 그 단계에 맞는 문서로 되돌린다.
+function goToTabAfterCompareFailure() {
+  ACTIVE_QA_TAB = HAS_REFERENCE_STEP ? 2 : 1;
+  switchViewerForTab(ACTIVE_QA_TAB);
+  renderQaStep();
 }
 
 function pollCompareStatus(taskId, startedAtMs) {
@@ -519,8 +546,7 @@ function pollCompareStatus(taskId, startedAtMs) {
       clearInterval(interval);
       COMPARE_LOADING = false;
       alert('응답이 없습니다. 잠시 후 다시 시도해주세요.');
-      ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
-      renderQaStep();
+      goToTabAfterCompareFailure();
       return;
     }
 
@@ -541,15 +567,14 @@ function pollCompareStatus(taskId, startedAtMs) {
           clearInterval(interval);
           COMPARE_LOADING = false;
           alert(data.message || `${COMPARE_TARGET_LABEL} 비교 중 오류가 발생했습니다.`);
-          ACTIVE_QA_TAB = HAS_RFP_QA_STEP ? 2 : 1;
-          renderQaStep();
+          goToTabAfterCompareFailure();
         }
       });
   }, 3000);
 }
 
 function renderComparisonHtml(cmp) {
-  const compareTitle = HAS_RFP_QA_STEP ? '대응 비교' : `${COMPARE_TARGET_LABEL} 비교`;
+  const compareTitle = HAS_REFERENCE_STEP ? '대응 비교' : `${COMPARE_TARGET_LABEL} 비교`;
   let html = `<div class="qa-tab-title">${compareTitle}</div>`;
   html += `<div class="qa-summary">
     <div class="qa-stat ok"><div class="num">${cmp.satisfied_count}</div><div class="lbl">충족</div></div>
@@ -562,6 +587,10 @@ function renderComparisonHtml(cmp) {
     ...(cmp.partial || []).map(e => ({...e, lv: 'warn'})),
   ];
 
+  // 이 탭은 이 산출물 자신(PEP/RPT)을 다시 보여준다 — 비교 항목이 가리키는 "이 산출물 쪽"
+  // 코드(target_codes)로 1단계에서 이미 구해둔 section_bboxes를 찾아 클릭 시 하이라이트한다.
+  const ownSectionBboxes = (CURRENT_QA_REPORT && CURRENT_QA_REPORT.section_bboxes) || {};
+
   if (rows.length) {
     html += `<ul class="issue-list">`;
     rows.forEach(e => {
@@ -569,7 +598,13 @@ function renderComparisonHtml(cmp) {
       // 문장은 performance/parsers.py의 _compare_rfp_to_target()/_compare_pep_to_rpt()가 백엔드에서 완성해 넘긴다.
       // 프론트는 조합하지 않고 그대로 표시한다.
       const messageHtml = escapeHtml(e.message || '').replace(/\n/g, '<br>');
-      html += `<li class="${e.lv}">
+      const targetCodes = e.target_codes || e.target_codes_checked || [];
+      const matchedCode = targetCodes.find(c => ownSectionBboxes[c]);
+      const bboxInfo = matchedCode ? ownSectionBboxes[matchedCode] : null;
+      const clickAttrs = bboxInfo
+        ? ` data-page="${bboxInfo.page}" data-bbox='${JSON.stringify(bboxInfo.bbox)}' onclick="placeSectionHighlightFromEl(this)"`
+        : '';
+      html += `<li class="${e.lv}${bboxInfo ? ' issue-clickable' : ''}"${clickAttrs}>
         <span class="ic">${ic}</span>
         <span>${messageHtml}</span>
       </li>`;
@@ -577,7 +612,7 @@ function renderComparisonHtml(cmp) {
     html += `</ul>`;
   } else if (!cmp.satisfied_count && !cmp.partial_count && !cmp.unsatisfied_count) {
     // 세 카운트가 모두 0이면 "다 충족"이 아니라 "비교할 항목 자체가 없었다"는 뜻이므로 안심시키는 문구 대신 확인이 필요하다는 문구를 보여준다.
-    html += `<p style="font-size:13px; color:#888; padding:10px 0;">비교할 항목이 없습니다 — RFP/${COMPARE_TARGET_LABEL} 파싱 결과를 확인하세요.</p>`;
+    html += `<p style="font-size:13px; color:#888; padding:10px 0;">비교할 항목이 없습니다 — ${DOC_LABEL}/${COMPARE_TARGET_LABEL} 파싱 결과를 확인하세요.</p>`;
   } else {
     html += `<p style="font-size:13px; color:#888; padding:10px 0;">${COMPARE_TARGET_LABEL} 대비 미흡한 항목이 발견되지 않았습니다.</p>`;
   }
@@ -783,6 +818,45 @@ window.jumpToTechApplyItem = function(idx) {
   else if (img) img.addEventListener('load', place, { once: true });
 };
 
+// 소제목 매핑 QA(1·2단계)/대응비교(3단계) 항목 클릭 → 좌측 뷰어에 위치 하이라이트.
+// tech_apply와 같은 %기반 bbox 방식을 공유하되, 클릭 시점에 항상 하나만 남도록 별도 클래스로 관리한다.
+function placeSectionHighlightFromEl(el) {
+  const page = parseInt(el.dataset.page, 10);
+  if (!page || !el.dataset.bbox) return;
+  placeSectionHighlight(page, JSON.parse(el.dataset.bbox));
+}
+
+function placeSectionHighlight(page, bbox) {
+  clearSectionHighlight();
+  if (!page || !bbox) return;
+  const container = document.getElementById('pdfPages');
+  if (!container) return;
+  const pageWrap = container.querySelector(`[data-page="${page}"]`);
+  if (!pageWrap) return;
+
+  const PAD_Y = 4;
+  const place = () => {
+    const img = pageWrap.querySelector('img');
+    if (!img) return;
+    const hl = document.createElement('div');
+    hl.className = 'tech-apply-highlight section-highlight';
+    hl.style.left = (img.offsetLeft + bbox.left / 100 * img.offsetWidth) + 'px';
+    hl.style.top = (img.offsetTop + bbox.top / 100 * img.offsetHeight - PAD_Y) + 'px';
+    hl.style.width = (bbox.width / 100 * img.offsetWidth) + 'px';
+    hl.style.height = (bbox.height / 100 * img.offsetHeight + PAD_Y * 2) + 'px';
+    pageWrap.appendChild(hl);
+    hl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const img = pageWrap.querySelector('img');
+  if (img && img.complete) place();
+  else if (img) img.addEventListener('load', place, { once: true });
+}
+
+function clearSectionHighlight() {
+  document.querySelectorAll('.section-highlight').forEach(el => el.remove());
+}
+
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -819,8 +893,9 @@ window.downloadReport = function() {
   window.location.href = `/performance/deliverable/${DEL_ID}/export-pdf/`;
 };
 
-// PDF 페이지 이미지 로드 — 좌측 뷰어는 기본으로 이 산출물(사업수행계획서 등)의 PDF를 보여주고, 
-// kickoff 화면에서는 상단 토글로 계약의 제안요청서(RFP) PDF로 바꿔 볼 수 있다(둘 다 같은 방식으로 pages/page 엔드포인트에서 이미지를 받아온다).
+// PDF 페이지 이미지 로드 — 좌측 뷰어는 기본으로 이 산출물(사업수행계획서 등)의 PDF를 보여주고,
+// kickoff/final 화면에서는 단계(탭)를 옮기면 switchViewerForTab()이 자동으로 참조 문서(RFP/과업수행계획서)
+// PDF로 바꿔 보여준다(둘 다 같은 방식으로 pages/page 엔드포인트에서 이미지를 받아온다).
 function loadPdfPages(pagesUrl, pageUrl) {
   const container = document.getElementById('pdfPages');
   if (!container) return;
@@ -845,27 +920,6 @@ function loadPdfPages(pagesUrl, pageUrl) {
         container.appendChild(wrap);
       }
     });
-}
-
-let CURRENT_DOC_SOURCE = 'kickoff';
-
-function switchDocSource(source) {
-  if (source === CURRENT_DOC_SOURCE) return;
-  CURRENT_DOC_SOURCE = source;
-  document.querySelectorAll('.doc-source-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.source === source);
-  });
-  if (source === 'rfp') {
-    loadPdfPages(
-      `/contracts/document/${RFP_DOC_ID}/pages/`,
-      p => `/contracts/document/${RFP_DOC_ID}/page/${p}/`,
-    );
-  } else {
-    loadPdfPages(
-      `/performance/deliverable/${DEL_ID}/pages/`,
-      p => `/performance/deliverable/${DEL_ID}/page/${p}/`,
-    );
-  }
 }
 
 loadPdfPages(
