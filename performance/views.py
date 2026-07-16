@@ -365,21 +365,39 @@ def deliverable_analyze(request, del_id):
             elif comparison.status == 'done':
                 comparison_data = comparison.comparison_json
 
-    # 사업수행계획서(kickoff) 전용 "2단계 · RFP 매핑" — RFP는 계약관리→이행관리 이관
-    # 시점에 이미 자동으로 파싱·QA가 끝나 있는 경우가 대부분이라, 그 결과를 그대로 복원한다. 
-    # 아직 안 끝났으면(또는 예전 계약이라 qa_report가 비어 있으면) 프론트에서 "RFP AI 분석 시작" 버튼을 눌러 새로 실행할 수 있다.
-    rfp_qa_data = None
-    rfp_doc_id = None
+    # "2단계 · 참조 문서 확인" — kickoff(사업수행계획서)는 RFP(제안요청서)를, final(사업추진결과보고서)은
+    # 과업수행계획서(PEP)를 참조로 보여준다. 참조 문서는 대부분 이 화면 진입 전에 이미 분석이
+    # 끝나 있는 경우가 많아 그 결과를 그대로 복원하고, 아직 안 끝났으면 프론트에서
+    # "AI 분석 시작" 버튼을 눌러 새로 실행할 수 있다.
+    reference_qa_data = None
+    reference_doc_id = None
+    reference_doc_kind = ''   # 'rfp' | 'kickoff' — 프론트에서 뷰어/분석 엔드포인트 분기용
+    reference_label = ''
     if is_kickoff:
+        reference_doc_kind = 'rfp'
+        reference_label = '제안요청서'
         rfp_doc = d.performance.contract.documents.filter(doc_type='rfp').first()
         if rfp_doc:
-            rfp_doc_id = rfp_doc.id
+            reference_doc_id = rfp_doc.id
         rfp_parsed = getattr(rfp_doc, 'rfp_parsed', None) if rfp_doc else None
         if rfp_parsed and rfp_parsed.parse_status in ('done', 'failed') and rfp_parsed.qa_report:
-            rfp_qa_data = {
+            reference_qa_data = {
                 'parse_status': rfp_parsed.parse_status,
                 'qa_report': rfp_parsed.qa_report,
                 'error_message': rfp_parsed.error_message,
+            }
+    elif is_final:
+        reference_doc_kind = 'kickoff'
+        reference_label = '과업수행계획서'
+        kickoff_doc = d.performance.deliverables.filter(deliverable_type='kickoff').first()
+        if kickoff_doc:
+            reference_doc_id = kickoff_doc.id
+        pep_parsed = getattr(kickoff_doc, 'parsed_data', None) if kickoff_doc else None
+        if pep_parsed and pep_parsed.parse_status in ('done', 'failed') and pep_parsed.qa_report:
+            reference_qa_data = {
+                'parse_status': pep_parsed.parse_status,
+                'qa_report': pep_parsed.qa_report,
+                'error_message': pep_parsed.error_message,
             }
 
     # 기술적용결과표: 이미 실행된 체크 검증 결과가 있으면 새로고침해도 그대로 복원
@@ -402,10 +420,12 @@ def deliverable_analyze(request, del_id):
         'is_kickoff': is_kickoff,
         'is_final': is_final,
         'has_qa_flow': is_kickoff or is_final,
-        'has_rfp_qa_step': is_kickoff,
-        'rfp_doc_id': rfp_doc_id,
+        'has_reference_step': is_kickoff or is_final,
+        'reference_doc_kind': reference_doc_kind,
+        'reference_doc_id': reference_doc_id,
+        'reference_label': reference_label,
         'qa_data': qa_data,
-        'rfp_qa_data': rfp_qa_data,
+        'reference_qa_data': reference_qa_data,
         'comparison_data': comparison_data,
         'compare_is_processing': compare_is_processing,
         'compare_task_id': compare_task_id,
