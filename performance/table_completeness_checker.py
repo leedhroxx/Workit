@@ -147,7 +147,9 @@ def find_empty_required_cells(pdf_path: str) -> list[dict]:
     같은 규칙을 적용한다.
 
     반환: [{"page": int, "table": str, "column": str, "row_label": str,
-            "message": str}, ...]
+            "message": str, "bbox": {left,top,width,height}(0~100, 페이지 대비 %)}, ...]
+    bbox는 tech_apply_checker.py와 같은 방식(페이지 폭/높이 대비 비율)이라
+    프런트에서 클릭 시 좌측 뷰어에 그대로 하이라이트할 수 있다.
     """
     results = []
     active_spec = None
@@ -155,38 +157,48 @@ def find_empty_required_cells(pdf_path: str) -> list[dict]:
         with pdfplumber.open(pdf_path) as pdf:
             for page_number, page in enumerate(pdf.pages, start=1):
                 try:
-                    tables = page.extract_tables(TABLE_SETTINGS) or []
+                    # extract_tables()는 텍스트만 주고 셀 좌표가 없어 하이라이트를 못 만든다 —
+                    # find_tables()는 같은 표를 Table 객체로 줘서 row.cells의 셀별 bbox를 그대로 쓸 수 있다.
+                    tables = page.find_tables(TABLE_SETTINGS) or []
                 except Exception:
                     tables = []
                 for table in tables:
-                    issues, active_spec = _check_table(table, page_number, active_spec)
+                    issues, active_spec = _check_table(table, page, page_number, active_spec)
                     results.extend(issues)
     except Exception:
         return []
     return results
 
 
-def _check_table(table: list, page_number: int, active_spec: dict | None):
-    if not table:
+def _check_table(table, page, page_number: int, active_spec: dict | None):
+    text_rows = table.extract()
+    if not text_rows:
         return [], active_spec
 
-    header, *rows = table
+    cell_rows = table.rows
+    header, *rows = text_rows
     spec = _match_spec(header)
 
     if spec:
-        data_rows = rows
+        data_text = rows
+        data_cells = cell_rows[1:]
     elif active_spec and len(header) == len(active_spec['header']):
         # 헤더가 매칭되지 않았지만 직전 표와 열 개수가 같음 — 페이지가 넘어가며
         # 잘린 이어지는 표로 보고, 이번 표의 첫 행도 데이터 행으로 취급한다.
         spec = active_spec
-        data_rows = table
+        data_text = text_rows
+        data_cells = cell_rows
     else:
         return [], None
 
-    data_rows = [r for r in data_rows if r and any((c or '').strip() for c in r)]
+    paired = [
+        (row, cells) for row, cells in zip(data_text, data_cells)
+        if row and any((c or '').strip() for c in row)
+    ]
+
     n_cols = len(spec['header'])
     issues = []
-    for row in data_rows:
+    for row, cellgroup in paired:
         row_label = _row_label(row)
         for col_idx in spec['required']:
             if col_idx >= n_cols or col_idx >= len(row):
@@ -195,6 +207,11 @@ def _check_table(table: list, page_number: int, active_spec: dict | None):
             if cell:
                 continue
             col_name = spec['header'][col_idx]
+
+            # 병합 등으로 이 칸만의 좌표가 없으면(None) 행 전체 영역으로 대신한다.
+            cell_bbox = cellgroup.cells[col_idx] if col_idx < len(cellgroup.cells) else None
+            x0, top, x1, bottom = cell_bbox or cellgroup.bbox
+
             issues.append({
                 'page': page_number,
                 'table': spec['name'],
@@ -203,5 +220,11 @@ def _check_table(table: list, page_number: int, active_spec: dict | None):
                 'message': (
                     f"'{row_label}' 행의 '{col_name}' 칸이 비어 있습니다."
                 ),
+                'bbox': {
+                    'left': round(x0 / page.width * 100, 3),
+                    'top': round(top / page.height * 100, 3),
+                    'width': round((x1 - x0) / page.width * 100, 3),
+                    'height': round((bottom - top) / page.height * 100, 3),
+                },
             })
     return issues, spec
