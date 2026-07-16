@@ -110,7 +110,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           </div>
           <h3>AI 품질 분석</h3>
-          <p><strong>{{ criteria_label }}</strong><br>각 항목의 적용/부분적용/미적용/해당없음 체크와<br>사유 작성 여부를 규칙 기반으로 검증합니다.</p>
+          <p><strong>{{ criteria_label|linebreaksbr }}</strong><br>각 항목의 적용/부분적용/미적용/해당없음 체크와<br>사유 작성 여부를 규칙 기반으로 검증합니다.</p>
           <button class="btn btn-primary" id="btnAnalyze" onclick="runAnalysis()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             AI 분석 시작
