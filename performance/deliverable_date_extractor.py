@@ -137,16 +137,20 @@ def parse_output_plan(pdf_path: str) -> list:
         if not row_text:
             continue
 
-        date_match = DATE_PATTERN.search(row_text)
+        # 열 폭이 좁으면 "2025.03.10" 같은 날짜가 셀 안에서 "2025.03.1\n0"처럼 숫자 중간에 줄바꿈이 들어가 잘린다. 
+        # 날짜 매칭만큼은 공백/줄바꿈을 전부 제거한 텍스트로 하되(원본 cells는 산출물명 표시용으로 그대로 둠).
+        cells_compact = [re.sub(r"\s+", "", c) for c in cells]
+        row_text_compact = re.sub(r"\s+", "", row_text)
+
+        date_match = DATE_PATTERN.search(row_text_compact)
 
         if date_match:
-            # 이 행에 날짜가 있음 = 산출물 레코드의 첫 물리적 행
-            # 앞쪽(0,1번 열 등)에 있는 비-날짜 텍스트를 산출물명 후보로 수집
+            # 이 행에 날짜가 있음 = 산출물 레코드의 첫 물리적 행 앞쪽(0,1번 열 등)에 있는 비-날짜 텍스트를 산출물명 후보로 수집
             name_frags = []
             copies = None
             doc_form = None
-            for c in cells:
-                if not c or DATE_PATTERN.search(c):
+            for c, c_compact in zip(cells, cells_compact):
+                if not c or DATE_PATTERN.search(c_compact):
                     continue
                 if re.match(r"^\d+식$|^\d*부$|^각\s*\d+부$", c):
                     copies = c
@@ -155,10 +159,8 @@ def parse_output_plan(pdf_path: str) -> list:
                 else:
                     name_frags.append(c)
 
-            # 후보가 여러 개면(예: '구분'+'산출물'처럼 앞에 카테고리 열이 따로
-            # 있는 템플릿) 알려진 산출물명과 매칭되는 후보를 우선 채택한다.
-            # 매칭되는 게 없으면 기존처럼 첫 파편을 쓴다(원래 템플릿 - 산출물명
-            # 열이 맨 앞 - 과의 하위 호환).
+            # 후보가 여러 개면(예: '구분'+'산출물'처럼 앞에 카테고리 열이 따로 있는 템플릿) 알려진 산출물명과 매칭되는 후보를 우선 채택한다.
+            # 매칭되는 게 없으면 기존처럼 첫 파편을 쓴다(원래 템플릿 - 산출물명 열이 맨 앞 - 과의 하위 호환).
             if len(name_frags) > 1:
                 matched_frag = next(
                     (f for f in name_frags if classify_deliverable(re.sub(r"\s+", "", f))),
@@ -171,8 +173,7 @@ def parse_output_plan(pdf_path: str) -> list:
             candidate_name = (pending_name_frag + " " + chosen_frag).strip()
             pending_name_frag = ""
 
-            # DATE_PATTERN은 "2026. 3. 20"과 "2026년 3월 20일" 두 형식을
-            # 각각 별도 캡처 그룹으로 잡는다 - 어느 쪽이 매칭됐는지에 따라 선택.
+            # DATE_PATTERN은 "2026. 3. 20"과 "2026년 3월 20일" 두 형식을 각각 별도 캡처 그룹으로 잡는다 - 어느 쪽이 매칭됐는지에 따라 선택.
             g = date_match.groups()
             y, m, d = (g[0], g[1], g[2]) if g[0] is not None else (g[3], g[4], g[5])
             due_date = f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
