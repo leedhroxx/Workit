@@ -19,8 +19,8 @@ def _chunk_contract(text: str) -> list[dict]:
     계약서 텍스트를 '제N조(...)' 단위 조항으로 분할한다.
     새 law_rag_pipeline.search_jo()는 조항 하나(query_text)씩 검색하는
     순수 검색 함수라, 계약서 전체를 조항 단위로 쪼개는 건 호출하는
-    쪽(여기)의 책임이다. (rag/pdfver_yoonha_contract_rag.py의 예전
-    chunk_contract()와 동일 로직 — 그 모듈은 없는 패키지에 의존해서 못 씀)
+    쪽(여기)의 책임이다. (예전 계약서 RAG 모듈의 chunk_contract()와 동일 로직 —
+    그 모듈은 없는 패키지에 의존해서 못 씀)
 
     "제N조" 패턴은 실제 조항 헤더 말고도 본문 중간의 법령 인용(예: "소프트웨어진흥법
     제38조에 근거") 이나 요약표의 오기재("지식재산권 제23조(지식재산권)에서 정하는

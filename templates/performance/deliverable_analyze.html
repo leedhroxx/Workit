@@ -228,13 +228,6 @@ let COMPARE_LOADING = COMPARE_IS_PROCESSING;
 let COMPARE_PROGRESS = {current: 0, total: 0};
 let CURRENT_VIEWER_DOC = 'own';  // 'own' | 'reference' — 좌측 뷰어가 지금 어느 문서를 보여주는지
 
-// TEMP DEBUG — 3단계에서 참조 문서가 계속 보이는 문제 진단용. 원인 파악 후 제거.
-console.log('[DEBUG init]', {
-  DEL_ID, REFERENCE_DOC_ID, REFERENCE_DOC_KIND, HAS_REFERENCE_STEP,
-  COMPARE_TAB_INDEX, ACTIVE_QA_TAB, COMPARE_IS_PROCESSING, CURRENT_VIEWER_DOC,
-  hasComparisonData: !!COMPARISON_DATA,
-});
-
 if (COMPARE_IS_PROCESSING) {
   pollCompareStatus(COMPARE_TASK_ID, Date.now());
 }
@@ -321,11 +314,10 @@ function switchQaTab(n) {
 // 탭(단계)을 옮기면 좌측 뷰어도 자동으로 그 단계가 다루는 문서로 바뀐다 —
 // 2단계(참조 문서 확인)만 참조 문서(RFP/과업수행계획서)를 보여주고, 나머지 단계는 이 산출물 자신을 보여준다.
 function switchViewerForTab(n) {
-  console.log('[DEBUG switchViewerForTab] called', {n, CURRENT_VIEWER_DOC, HAS_REFERENCE_STEP});
-  if (!HAS_REFERENCE_STEP) { console.log('[DEBUG switchViewerForTab] early return: !HAS_REFERENCE_STEP'); return; }
+  if (!HAS_REFERENCE_STEP) return;
   const label = document.getElementById('viewerDocLabel');
   if (n === 2) {
-    if (CURRENT_VIEWER_DOC === 'reference') { console.log('[DEBUG switchViewerForTab] early return: already reference'); return; }
+    if (CURRENT_VIEWER_DOC === 'reference') return;
     CURRENT_VIEWER_DOC = 'reference';
     if (label) label.textContent = REFERENCE_LABEL;
     if (REFERENCE_DOC_KIND === 'rfp') {
@@ -334,10 +326,9 @@ function switchViewerForTab(n) {
       loadPdfPages(`/performance/deliverable/${REFERENCE_DOC_ID}/pages/`, p => `/performance/deliverable/${REFERENCE_DOC_ID}/page/${p}/`);
     }
   } else {
-    if (CURRENT_VIEWER_DOC === 'own') { console.log('[DEBUG switchViewerForTab] early return: already own'); return; }
+    if (CURRENT_VIEWER_DOC === 'own') return;
     CURRENT_VIEWER_DOC = 'own';
     if (label) label.textContent = DOC_LABEL;
-    console.log('[DEBUG switchViewerForTab] loading OWN doc', {DEL_ID});
     loadPdfPages(`/performance/deliverable/${DEL_ID}/pages/`, p => `/performance/deliverable/${DEL_ID}/page/${p}/`);
   }
 }
@@ -911,14 +902,12 @@ window.downloadReport = function() {
 // kickoff/final 화면에서는 단계(탭)를 옮기면 switchViewerForTab()이 자동으로 참조 문서(RFP/과업수행계획서)
 // PDF로 바꿔 보여준다(둘 다 같은 방식으로 pages/page 엔드포인트에서 이미지를 받아온다).
 function loadPdfPages(pagesUrl, pageUrl) {
-  console.log('[DEBUG loadPdfPages] called with', pagesUrl, new Error().stack);
   const container = document.getElementById('pdfPages');
   if (!container) return;
   container.innerHTML = '';
   fetch(pagesUrl)
     .then(r => r.json())
     .then(data => {
-      console.log('[DEBUG loadPdfPages] resolved', pagesUrl, 'pages:', data.pages);
       const total = data.pages || 1;
       for (let p = 1; p <= total; p++) {
         const wrap = document.createElement('div');
